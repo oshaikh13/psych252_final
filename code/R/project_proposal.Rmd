@@ -1,0 +1,186 @@
+---
+title: "Bloom: Designing for LLM-augmented behavior change interactions"
+subtitle: "Crazy Poor Bayesians"
+author: "Omar Shaikh, Shardul Sapkota"
+date: "`r Sys.time()`"
+urlcolor: blue # to show hyperlinks in blue when printed as pdf
+
+# edit the output format below
+# output: html_document # use this to render to html
+output: pdf_document # use this to render to pdf
+
+---
+
+*Instructions*
+
+The project proposal is due on __Thursday, February 19th at 8pm__. It should not be longer than __700 words__. It may contain code (code doesn't count toward the word limit). 
+
+# Research question (3 pt)
+
+## What is your main research question? (1 pt)
+=
+> Does augmenting existing behavior change interactions with an LLM lead to greater improvements in (a) measured physical activity and (b) psychological determinants of behavior change compared to behavior change interactions without LLM-based features?
+
+
+## What hypotheses are you trying to test? (2 pt)
+
+_Enumerate 1-3 hypotheses in terms of directional relationships. For example, you might write something like "X is predicted to increase as Y increases", or "We predict that performance in Group 2 will be significantly better than performance in Group 1"._ 
+
+> 1. Participants in the LLM condition will show a greater increase in physical activity (e.g., daily steps, exercise time, energy burned, distance walking/running) from baseline to the 4-week study period compared to participants in the control condition.
+
+> 2. Participants in the LLM condition will show greater improvements in psychological outcomes related to behavior change (e.g., enjoyment of activity, belief that activity is beneficial, self-compassion, and exercise self-efficacy) compared to the control condition.
+
+> 3. Participants in the LLM condition will demonstrate higher engagement (e.g., time spent in the app, plan completion rates) than participants in the control condition.
+
+# Methods (4 pt)
+
+## Study Design (1 pt)
+
+_Describe the study design and data. How were the data collected? From whom? Are the data from an experiment, or will you work with existing data? If the former, what were the experimental conditions? Is the design cross-sectional or longitudinal, and if the latter, what was the time period over which the data was collected? You can use the acronym QALMRI to guide your write-up (https://www.cnlm.uci.edu/files/2015/01/QALMRI.pdf)._
+
+> **Q (Question):** This study investigates the question of whether adding an LLM-based health coaching chatbot and LLM-personalized UI features to a physical activity app improve objectively measured physical activity and psychological determinants of behavior change compared to a similar app without LLM features?
+
+> **A (Alternatives):** Participants were randomly assigned to one of two conditions:
+
+> 1. LLM condition (Bloom): included LLM-based chat coaching, LLM-generated activity plans, personalized summaries, and LLM-generated notifications.
+
+> 2. Control condition (no-LLM): removed all LLM features. Participants created plans using a structured UI, received template-based notifications, and did not receive LLM-generated summaries.
+
+> **L (Logic):** If LLM-based coaching improves personalization, motivational support, and engagement, then participants in the LLM condition should show greater increases in physical activity and more positive psychological changes over time compared to the control condition.
+
+> **M (Measures):** Physical activity outcomes were collected via Apple HealthKit (e.g., daily step count, exercise time, energy burned, distance walking/running). Participants also completed pre-study and post-study surveys, weekly surveys, and semi-structured interviews. System interaction logs (e.g., time in app, plan completion, chat activity) were also recorded.
+
+> **R (Results – anticipated):** We expect to compare baseline-to-study changes in physical activity and psychological outcomes between conditions using mixed-effects models. Primary outcomes include daily physical activity metrics and pre–post survey changes.
+
+> **I (Inferences):** Because the study uses random assignment and a longitudinal design, differences in change over time between conditions can be attributed to the presence or absence of LLM-based features, within the limits of the sample size and study duration.
+
+> **Design Type:** This is a randomized, longitudinal field experiment. Participants provided three months of baseline wearable data prior to the intervention, followed by a four-week study period during which they used the assigned version of the app.
+
+## Planned sample (2 pt)
+
+_What is the sample size? What level of power will you have for testing your main hypothesis? Make sure to include output that shows your power analysis, e.g., code with relevant output and/or a clearly labeled graph._
+
+> The planned sample size is N = 54 participants (approximately 26 in the LLM condition and 28 in the control condition), matching the sample size reported in the Bloom field study.
+
+> To estimate power for detecting between-group differences, we conduct a two-sample power analysis:
+
+```{r}
+library(pwr)
+
+pwr.t2n.test(n1 = 26, 
+             n2 = 28, 
+             d = 0.70, 
+             sig.level = 0.05)
+
+
+```
+
+> With $N \approx$ 54, the study has approximately 0.71 power to detect medium-to-large effects ($d \approx 0.7$) between conditions. Given that the original paper did not find significant between-condition differences in wearable physical activity outcomes over the 4-week period, the power analysis also suggests that the study is underpowered to detect small effects. 
+
+## Variables (1 pt)
+
+_List your variables of interest (including dependent and independent variables) and describe how they are operationalized._   
+
+> Independent variable:
+
+>    - condition (0 = control/no-LLM, 1 = LLM/Bloom)
+
+> Primary dependent variables (wearable outcomes):
+
+>    - Daily step count
+>    - Daily energy burned
+>    - Daily distance walking/running
+>    - Daily exercise time
+
+> Secondary dependent variables (self-report psychological outcomes):
+
+>    - Belief that activity is beneficial
+>    - Exercise enjoyment
+>    - Self-compassion after missed goals
+>    - Exercise self-efficacy
+>    - Other mindset-related survey measures
+
+> Engagement variables:
+
+>    - Total time spent in the app
+>    - Plan completion rates
+>    - Number of interactions (e.g., chats, plan edits)
+
+# Analysis (5 pt)
+
+## Primary analyses (3 pt)
+
+_What statistical analyses are you planning to use to test the hypotheses described above? If possible, formalize your hypotheses as linear models in R, e.g.: `response ~ 1 + group + age`. It is also fine to talk about statistical techniques here that we haven't and/or won't cover in class. _
+
+> For each wearable outcome (e.g., daily step count, energy burned, distance walking/running, exercise time), we will replicate the linear mixed-effects modeling approach described in the Bloom paper.
+
+> The model structure is:
+
+> Y ~ 1 + S + S:condition + S:week + S:condition:week + weekday + (1|id) + (1|id:week)
+
+> Where:
+
+>    - S = 0 for baseline (week 0) and 1 for study weeks (weeks 1–4)
+>    - week = 0–4 (baseline aggregate = 0)
+>    - condition = 0 (control) or 1 (LLM)
+>    - weekday = fixed effects for day of week (Sunday as reference)
+>    - (1|id) = random intercept for participant
+>    - (1|id:week) = random intercept for participant-week
+
+> This model tests:
+
+> 1. Overall change from baseline to the study period.
+> 2. Whether the LLM condition changes the baseline-to-study shift.
+> 3. Whether the LLM condition changes the weekly slope during the 4-week intervention.
+
+> For psychological survey outcomes, we will use mixed-effects models with a condition × time interaction:
+
+> outcome ~ 1 + condition * time + (1|id)
+
+> where time represents pre vs post (or week for repeated weekly measures). The primary test is the condition × time interaction.
+
+## Other analytic choices (2 pt)
+
+_Are there any other analytic choices a reader of your project proposal should know about? For instance, will you check model assumptions and, if so, how? Will you do any data transformations? If you have missing data, what will you do to address this?_ 
+
+> We will apply the same exclusion criteria described in the paper (e.g., minimum baseline data and limits on missing study days) prior to modeling. Weekday fixed effects will be included to account for systematic variation in physical activity across days of the week.
+
+> Mixed-effects models allow us to account for repeated daily measurements nested within participants and participant-weeks. Residual diagnostics will be conducted to assess assumptions of normality and homoscedasticity. If necessary, transformations (e.g., log transformation of skewed activity variables) will be considered.
+
+> Because multiple wearable outcomes are analyzed, results will clearly distinguish primary and secondary outcomes to avoid overinterpretation of marginal effects.
+
+# Key Visualizations (2 pt)
+
+_What figures and/or tables are you planning on showing? For figures, what will be on the X and Y axes, what `geom(s)` will you use (e.g. point, bar, line)? No need to include code here, but you can if you think it would be helpful. For tables, what will be in the columns and rows?_
+
+# Key Visualizations
+
+> 1. Line plot of mean daily physical activity over time by condition.
+>    - X-axis: Week (baseline aggregate, weeks 1–4)
+>    - Y-axis: Mean daily steps (or exercise time)
+>    - Separate lines for LLM vs control
+>    - 95% confidence intervals
+
+> 2. Boxplot of participant-level baseline-to-study change scores.
+>    - X-axis: Condition
+>    - Y-axis: Change in mean daily physical activity (study - baseline)
+
+> 3. Bar plot of pre–post psychological change.
+>    - X-axis: Condition
+>    - Y-axis: Mean change (post - pre)
+>    - Error bars showing standard errors
+
+> 4. Engagement visualization.
+>    - X-axis: Condition
+>    - Y-axis: Total time in app or number of interactions
+>    - Displayed as a boxplot or violin plot
+
+# Acknowledgement
+
+> We would like to thank Matthew Jörke for his helpful guidance. This project proposal will be using the experimental data and conditions defined in the following paper: 
+
+> Jörke, Matthew, Defne Genç, Valentin Teutschbein, Shardul Sapkota, Sarah Chung, Paul Schmiedmayer, Maria Ines Campero, Abby C. King, Emma Brunskill, and James A. Landay. "Bloom: Designing for LLM-augmented behavior change interactions." arXiv preprint arXiv:2510.05449 (2025).
+
+
+ 
+

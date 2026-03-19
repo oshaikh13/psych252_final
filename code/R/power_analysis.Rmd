@@ -1,0 +1,95 @@
+---
+title: "Bloom: Power Analysis"
+subtitle: "Crazy Poor Bayesians"
+author: "Omar Shaikh, Shardul Sapkota"
+date: "`r Sys.time()`"
+urlcolor: blue
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_knit$set(root.dir = here::here())
+```
+
+# Overview
+
+This document reports the power analysis for the Bloom study. We compute the sample sizes required to achieve 80% power under small, medium, and large effect sizes, and estimate the minimally detectable effect sizes (MDES) given the actual sample.
+
+# Required Sample Sizes for 80% Power
+
+For **H1** (baseline vs. study, within-person paired comparison) and **H2** (LLM vs. control, between-group comparison), we compute the required N at $d \in \{0.3, 0.5, 0.8\}$, $\alpha = .05$.
+
+```{r sample-sizes}
+library(pwr)
+library(tidyverse)
+
+## Sensitivity Analysis
+ds <- c(0.3, 0.5, 0.8)
+
+## ---- H1: study > baseline (paired) ----
+h1_required <- sapply(ds, function(d) {
+  out <- pwr.t.test(
+    d = d,
+    sig.level = 0.05,
+    power = 0.80,
+    type = "paired"
+  )
+  ceiling(out$n)     # participants needed (pairs)
+})
+
+## ---- H2: treatment > control (two-sample) ----
+h2_required_per_group <- sapply(ds, function(d) {
+  out <- pwr.t.test(
+    d = d,
+    sig.level = 0.05,
+    power = 0.80,
+    type = "two.sample"
+  )
+  ceiling(out$n)   # n per group
+})
+
+h2_required_total <- 2 * h2_required_per_group
+
+results_table <- tibble(
+  Effect_Size_d = ds,
+  H1_N_required_paired = h1_required,
+  H2_N_required_per_group = h2_required_per_group,
+  H2_N_required_total = h2_required_total
+)
+
+print(results_table)
+```
+
+# Minimally Detectable Effect Sizes
+
+Given the actual sample ($N = 54$ total; $\approx 27$ per group), we compute the MDES at 80% power.
+
+```{r mdes}
+## ---- Minimally Detectable Effects ----
+
+# H1 MDES
+h1_mdes <- pwr.t.test(
+  n = 54,
+  sig.level = 0.05,
+  power = 0.80,
+  type = "paired"
+)$d
+
+# H2 MDES
+h2_mdes <- pwr.t.test(
+  n = 27,
+  sig.level = 0.05,
+  power = 0.80,
+  type = "two.sample"
+)$d
+
+mdes_table <- tibble(
+  Contrast = c("H1 (paired)", "H2 (two-sample)"),
+  N = c(54, 27),
+  MDES_d = c(h1_mdes, h2_mdes)
+)
+
+print(mdes_table)
+```
+
+The study has sufficient power to detect medium-to-large effects ($d \geq 0.5$) for H1, but is underpowered for small effects. For between-group comparisons (H2), the MDES is notably larger given the smaller per-group sample.

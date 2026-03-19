@@ -1,0 +1,138 @@
+---
+title: "Bloom: Exercise Time Adherence (150 min/week)"
+subtitle: "Crazy Poor Bayesians"
+author: "Omar Shaikh, Shardul Sapkota"
+date: "`r Sys.time()`"
+urlcolor: blue
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_knit$set(root.dir = here::here())
+```
+
+# Overview
+
+This document examines adherence to the WHO-recommended 150 minutes of moderate physical activity per week using the `hk_appleexercisetime` variable. We report the percentage of participants meeting this threshold at baseline vs. during the study, overall and broken down by condition.
+
+# Setup
+
+```{r setup-libs, message=FALSE, warning=FALSE}
+library(tidyverse)
+library(glue)
+```
+
+# Data
+
+```{r load-data}
+df <- read_csv("data/daily_hk.csv", col_types = cols()) %>%
+  mutate(
+    uid       = factor(uid),
+    condition = if_else(group == "treatment", 1L, 0L),
+    S         = if_else(day > 0, 1L, 0L),
+    d_study   = if_else(day > 0, day, 0L),
+
+    week = case_when(
+      day <= 0 ~ 0L,
+      TRUE     ~ ((day - 1L) %/% 7L) + 1L
+    ) %>% factor(levels = 0:4),
+    week_num = as.integer(as.character(week)),
+
+    dow_idx = ((day - 1L) %% 7L + 7L) %% 7L + 1L,
+    dow = factor(
+      dow_idx,
+      levels = 1:7,
+      labels = c("Sunday","Monday","Tuesday","Wednesday",
+                 "Thursday","Friday","Saturday")
+    )
+  ) %>%
+  filter(day <= 28)
+```
+
+# Inclusion Criteria
+
+We apply the same inclusion criteria as the main analysis: ≥30 non-missing baseline days and <3 missing study days.
+
+```{r inclusion}
+exercise_time_data <- df %>%
+  select(uid, group, condition, day, week, y = hk_appleexercisetime)
+
+keep_uid_baseline_ex <- exercise_time_data %>%
+  filter(day <= 0) %>%
+  group_by(uid) %>%
+  summarise(n_base = sum(!is.na(y)), .groups = "drop") %>%
+  filter(n_base >= 30) %>%
+  pull(uid)
+
+exercise_time_data <- exercise_time_data %>% filter(uid %in% keep_uid_baseline_ex)
+
+keep_uid_study_ex <- exercise_time_data %>%
+  filter(day >= 1, day <= 28) %>%
+  group_by(uid) %>%
+  summarise(n_missing_study = sum(is.na(y)), .groups = "drop") %>%
+  filter(n_missing_study < 3) %>%
+  pull(uid)
+
+exercise_time_data <- exercise_time_data %>% filter(uid %in% keep_uid_study_ex)
+```
+
+# Weekly Minutes and Adherence
+
+We average daily exercise time within each participant-week, scale to weekly minutes, then classify participants as meeting the 150 min/week threshold within each period (baseline vs. study).
+
+```{r adherence}
+exercise_time_data <- exercise_time_data %>%
+  mutate(
+    week_num = as.integer(as.character(week)),
+    period   = if_else(week_num <= 0, "baseline", "study")
+  )
+
+weekly_minutes <- exercise_time_data %>%
+  group_by(uid, condition, group, period, week_num) %>%
+  summarise(
+    weekly_minutes = 7 * mean(y, na.rm = TRUE),  # corrects for weeks with < 7 days
+    .groups = "drop"
+  )
+
+person_period <- weekly_minutes %>%
+  group_by(uid, condition, group, period) %>%
+  summarise(
+    avg_weekly_minutes = mean(weekly_minutes, na.rm = TRUE),
+    .groups = "drop"
+  ) %>%
+  mutate(meets_150 = avg_weekly_minutes >= 150)
+```
+
+# Results
+
+## Overall (baseline vs. study)
+
+```{r overall}
+overall <- person_period %>%
+  group_by(period) %>%
+  summarise(
+    n_participants = n(),
+    n_meeting      = sum(meets_150, na.rm = TRUE),
+    pct_meeting    = round(100 * n_meeting / n_participants, 1),
+    .groups = "drop"
+  ) %>%
+  arrange(match(period, c("baseline", "study")))
+
+print(overall)
+```
+
+## By Condition
+
+```{r by-condition}
+by_condition <- person_period %>%
+  group_by(period, group) %>%
+  summarise(
+    n_participants = n(),
+    n_meeting      = sum(meets_150, na.rm = TRUE),
+    pct_meeting    = round(100 * n_meeting / n_participants, 1),
+    .groups = "drop"
+  ) %>%
+  arrange(match(period, c("baseline", "study")), group)
+
+print(by_condition)
+```

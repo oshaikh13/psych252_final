@@ -1,0 +1,346 @@
+---
+title: "Bloom: Visualizations"
+subtitle: "Crazy Poor Bayesians"
+author: "Omar Shaikh, Shardul Sapkota"
+date: "`r Sys.time()`"
+urlcolor: blue
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_knit$set(root.dir = normalizePath("../.."))
+knitr::opts_chunk$set(echo = FALSE, message = FALSE, warning = FALSE,
+                      fig.width = 7, fig.height = 4)
+```
+
+```{r libs}
+library(tidyverse)
+library(glue)
+```
+
+```{r theme}
+theme_set(theme_classic(base_size = 12))
+condition_colors  <- c("Control" = "#4C9BE8", "Treatment" = "#E87B4C")
+condition_fills   <- c("Control" = "#4C9BE8", "Treatment" = "#E87B4C")
+```
+
+# Data
+
+```{r load-data}
+df_hk <- read_csv("data/daily_hk.csv", col_types = cols()) %>%
+  mutate(
+    uid       = factor(uid),
+    Condition = if_else(group == "treatment", "Treatment", "Control"),
+    condition = if_else(group == "treatment", 1L, 0L),
+    S         = if_else(day > 0, 1L, 0L),
+    week_num  = case_when(
+      day <= 0 ~ 0L,
+      TRUE     ~ as.integer(((day - 1L) %/% 7L) + 1L)
+    )
+  ) %>%
+  filter(day <= 28)
+
+df_pre_post <- read_csv("data/pre_post.csv", col_types = cols()) %>%
+  mutate(
+    Condition = if_else(condition == "T", "Treatment", "Control"),
+    uid       = row_number()   # no UID column; use row index
+  )
+
+df_app <- read_csv("data/daily_hk_app_usage.csv", col_types = cols()) %>%
+  mutate(
+    uid       = factor(uid),
+    Condition = if_else(condition == "treatment", "Treatment", "Control")
+  ) %>%
+  filter(day >= 1, day <= 28)
+```
+
+```{r inclusion}
+# Apply same inclusion criteria as main models (≥30 baseline days; <3 missing study days)
+keep_uid <- df_hk %>%
+  group_by(uid) %>%
+  summarise(
+    n_base         = sum(!is.na(hk_stepcount) & day <= 0),
+    n_missing_study = sum(is.na(hk_stepcount) & day >= 1 & day <= 28),
+    .groups = "drop"
+  ) %>%
+  filter(n_base >= 30, n_missing_study < 3) %>%
+  pull(uid)
+
+df_hk_inc <- df_hk %>% filter(uid %in% keep_uid)
+```
+
+---
+
+# Plot 1 — Physical Activity Over Time by Condition
+
+Mean daily step count aggregated by week (week 0 = baseline, weeks 1–4 = study period).
+Error bars show ±1 SE across participants.
+
+```{r plot1-steps-over-time}
+week_means <- df_hk_inc %>%
+  group_by(uid, Condition, week_num) %>%
+  summarise(mean_steps = mean(hk_stepcount, na.rm = TRUE), .groups = "drop") %>%
+  group_by(Condition, week_num) %>%
+  summarise(
+    m  = mean(mean_steps, na.rm = TRUE),
+    se = sd(mean_steps, na.rm = TRUE) / sqrt(n()),
+    .groups = "drop"
+  ) %>%
+  mutate(week_label = if_else(week_num == 0, "Baseline", glue("Week {week_num}")),
+         week_label = factor(week_label, levels = c("Baseline", glue("Week {1:4}"))))
+
+ggplot(week_means, aes(x = week_label, y = m, color = Condition, group = Condition)) +
+  geom_line(linewidth = 0.9) +
+  geom_point(size = 2.5) +
+  geom_errorbar(aes(ymin = m - se, ymax = m + se), width = 0.2, linewidth = 0.7) +
+  geom_vline(xintercept = 1.5, linetype = "dashed", color = "gray50", linewidth = 0.6) +
+  scale_color_manual(values = condition_colors) +
+  labs(
+    title   = "Mean Daily Step Count by Week and Condition",
+    x       = NULL,
+    y       = "Mean daily steps",
+    color   = NULL
+  ) +
+  theme(legend.position = "top")
+```
+
+```{r plot1-exercise-time}
+week_means_ex <- df_hk_inc %>%
+  group_by(uid, Condition, week_num) %>%
+  summarise(mean_ex = mean(hk_appleexercisetime, na.rm = TRUE), .groups = "drop") %>%
+  group_by(Condition, week_num) %>%
+  summarise(
+    m  = mean(mean_ex, na.rm = TRUE),
+    se = sd(mean_ex, na.rm = TRUE) / sqrt(n()),
+    .groups = "drop"
+  ) %>%
+  mutate(week_label = if_else(week_num == 0, "Baseline", glue("Week {week_num}")),
+         week_label = factor(week_label, levels = c("Baseline", glue("Week {1:4}"))))
+
+ggplot(week_means_ex, aes(x = week_label, y = m, color = Condition, group = Condition)) +
+  geom_line(linewidth = 0.9) +
+  geom_point(size = 2.5) +
+  geom_errorbar(aes(ymin = m - se, ymax = m + se), width = 0.2, linewidth = 0.7) +
+  geom_vline(xintercept = 1.5, linetype = "dashed", color = "gray50", linewidth = 0.6) +
+  scale_color_manual(values = condition_colors) +
+  labs(
+    title   = "Mean Daily Exercise Time (min) by Week and Condition",
+    x       = NULL,
+    y       = "Mean daily exercise time (min)",
+    color   = NULL
+  ) +
+  theme(legend.position = "top")
+```
+
+---
+
+# Plot 2 — Baseline-to-Study Change by Condition
+
+Participant-level change scores (study mean − baseline mean) for all four HealthKit outcomes.
+
+```{r plot2-change-scores}
+outcome_labels <- c(
+  hk_stepcount              = "Step Count",
+  hk_activeenergyburned     = "Active Energy (kcal)",
+  hk_appleexercisetime      = "Exercise Time (min)",
+  hk_distancewalkingrunning = "Distance (km)"
+)
+
+change_scores <- df_hk_inc %>%
+  pivot_longer(
+    cols      = c(hk_stepcount, hk_activeenergyburned,
+                  hk_appleexercisetime, hk_distancewalkingrunning),
+    names_to  = "outcome",
+    values_to = "value"
+  ) %>%
+  group_by(uid, Condition, outcome, S) %>%
+  summarise(period_mean = mean(value, na.rm = TRUE), .groups = "drop") %>%
+  pivot_wider(names_from = S, values_from = period_mean, names_prefix = "S") %>%
+  mutate(change = S1 - S0,
+         outcome = factor(outcome, levels = names(outcome_labels),
+                          labels = outcome_labels))
+
+ggplot(change_scores, aes(x = Condition, y = change, fill = Condition)) +
+  geom_hline(yintercept = 0, linetype = "dashed", color = "gray60") +
+  geom_boxplot(alpha = 0.7, outlier.shape = 21, outlier.size = 1.5,
+               width = 0.5) +
+  scale_fill_manual(values = condition_fills) +
+  facet_wrap(~ outcome, scales = "free_y", nrow = 1) +
+  labs(
+    title = "Baseline-to-Study Change Scores by Condition",
+    x     = NULL,
+    y     = "Change (study − baseline daily mean)",
+    fill  = NULL
+  ) +
+  theme(legend.position = "none",
+        strip.background = element_blank(),
+        strip.text = element_text(size = 9))
+```
+
+---
+
+# Plot 3 — Pre–Post Psychological Change by Condition
+
+Dumbbell plot showing mean pre and post scores by condition for key psychological outcomes.
+Normalized composite scores are rescaled to a 1–5 Likert-style axis (`norm × 4 + 1`).
+
+```{r plot3-pre-post}
+psych_vars <- tribble(
+  ~pre_col,                                    ~post_col,                                    ~label,                        ~scale,
+  "adequacy_mindset_total_norm_pre",           "adequacy_mindset_total_norm_post",           "PA Adequacy\nMindset",        "norm01",
+  "process_mindset_exercise_total_norm_pre",   "process_mindset_exercise_total_norm_post",   "PA Process\nMindset",         "norm01",
+  "satisfaction_physical_activity_pre",        "satisfaction_physical_activity_post",        "Satisfaction:\nPA Level",     "likert7",
+  "satisfaction_physical_health_pre",          "satisfaction_physical_health_post",          "Satisfaction:\nPhysical Health", "likert7"
+)
+
+# norm01: 0-1 normalized → rescale to 1-5
+# likert7: raw 1-7 item → rescale to 1-5
+rescale_col <- function(vals, scale) {
+  if (scale == "norm01")   vals * 4 + 1
+  else if (scale == "likert7") (vals - 1) / 6 * 4 + 1
+  else vals
+}
+
+psych_means <- psych_vars %>%
+  pmap_dfr(function(pre_col, post_col, label, scale) {
+    df_pre_post %>%
+      group_by(Condition) %>%
+      summarise(
+        pre_m  = mean(rescale_col(.data[[pre_col]],  scale), na.rm = TRUE),
+        post_m = mean(rescale_col(.data[[post_col]], scale), na.rm = TRUE),
+        .groups = "drop"
+      ) %>%
+      mutate(label = label)
+  }) %>%
+  mutate(
+    label     = factor(label, levels = rev(psych_vars$label)),
+    delta     = post_m - pre_m,
+    delta_lbl = sprintf("%+.2f", delta),
+    # vertical offset so Treatment and Control don't overlap
+    y_offset  = if_else(Condition == "Treatment", 0.18, -0.18),
+    y_pos     = as.numeric(label) + y_offset
+  )
+
+cond_colors <- c("Treatment" = "#2a7a2a", "Control" = "#aaaaaa")
+
+ggplot(psych_means) +
+  # arrow from pre → post
+  geom_segment(
+    aes(x = pre_m, xend = post_m, y = y_pos, yend = y_pos,
+        color = Condition),
+    arrow = arrow(length = unit(0.18, "cm"), type = "closed"),
+    linewidth = 0.9
+  ) +
+  # dot at pre
+  geom_point(aes(x = pre_m, y = y_pos, color = Condition), size = 3) +
+  # label: "Pre → Post (Δ)"
+  geom_text(
+    aes(x = post_m, y = y_pos,
+        label = sprintf("Pre: %.2f → Post: %.2f (Δ=%s)", pre_m, post_m, delta_lbl),
+        color = Condition,
+        hjust = if_else(post_m >= pre_m, -0.08, 1.08)),
+    size = 2.8, show.legend = FALSE
+  ) +
+  scale_color_manual(values = cond_colors,
+                     guide  = guide_legend(reverse = TRUE)) +
+  scale_y_continuous(
+    breaks = seq_along(levels(psych_means$label)),
+    labels = levels(psych_means$label)
+  ) +
+  scale_x_continuous(limits = c(1, 6.5),
+                     breaks = 1:5,
+                     labels = c("1\nStrongly\nDisagree", "2", "3", "4",
+                                "5\nStrongly\nAgree")) +
+  labs(
+    title  = "Mindset & Satisfaction: Pre–Post by Condition",
+    x      = "Average Score (Likert Scale)",
+    y      = NULL,
+    color  = NULL
+  ) +
+  theme_classic(base_size = 11) +
+  theme(
+    legend.position   = "top",
+    axis.text.y       = element_text(hjust = 1, lineheight = 0.9),
+    panel.grid.major.x = element_line(color = "gray88", linetype = "dashed"),
+    plot.title        = element_text(face = "bold", hjust = 0.5)
+  )
+```
+
+---
+
+# Plot 4 — App Engagement (Treatment Group)
+
+Distribution of daily chat interactions and app usage during the study period,
+shown for treatment participants only (control had no AI coaching features).
+
+```{r plot4-engagement}
+app_treat <- df_app %>%
+  filter(Condition == "Treatment") %>%
+  group_by(uid) %>%
+  summarise(
+    total_chats    = sum(chat_counts, na.rm = TRUE),
+    total_messages = sum(chat_user_messages_count, na.rm = TRUE),
+    total_duration = sum(app_duration, na.rm = TRUE) / 60,  # convert to minutes
+    .groups        = "drop"
+  )
+
+p_chats <- ggplot(app_treat, aes(y = total_chats)) +
+  geom_boxplot(fill = condition_fills["Treatment"], alpha = 0.7,
+               width = 0.4, outlier.shape = 21) +
+  labs(title = "Total Chat Sessions", y = "# sessions", x = NULL) +
+  theme(axis.text.x = element_blank(), axis.ticks.x = element_blank())
+
+p_msgs <- ggplot(app_treat, aes(y = total_messages)) +
+  geom_boxplot(fill = condition_fills["Treatment"], alpha = 0.7,
+               width = 0.4, outlier.shape = 21) +
+  labs(title = "Total User Messages", y = "# messages", x = NULL) +
+  theme(axis.text.x = element_blank(), axis.ticks.x = element_blank())
+
+p_dur <- ggplot(app_treat, aes(y = total_duration)) +
+  geom_boxplot(fill = condition_fills["Treatment"], alpha = 0.7,
+               width = 0.4, outlier.shape = 21) +
+  labs(title = "Total App Duration", y = "minutes", x = NULL) +
+  theme(axis.text.x = element_blank(), axis.ticks.x = element_blank())
+
+# Arrange side by side using patchwork if available, otherwise cowplot
+if (requireNamespace("patchwork", quietly = TRUE)) {
+  library(patchwork)
+  p_chats + p_msgs + p_dur +
+    plot_annotation(title = "App Engagement (Treatment Group, Study Period)")
+} else {
+  print(p_chats)
+  print(p_msgs)
+  print(p_dur)
+}
+```
+
+```{r plot4-daily-chat-trend}
+# Daily mean chat sessions by week for treatment group
+daily_chat <- df_app %>%
+  filter(Condition == "Treatment") %>%
+  mutate(
+    week_num  = as.integer(ceiling(day / 7)),
+    week_num  = pmin(week_num, 4),
+    week_label = glue("Week {week_num}") %>%
+      factor(levels = glue("Week {1:4}"))
+  ) %>%
+  group_by(uid, week_label) %>%
+  summarise(weekly_chats = sum(chat_counts, na.rm = TRUE), .groups = "drop") %>%
+  group_by(week_label) %>%
+  summarise(
+    m  = mean(weekly_chats, na.rm = TRUE),
+    se = sd(weekly_chats, na.rm = TRUE) / sqrt(n()),
+    .groups = "drop"
+  )
+
+ggplot(daily_chat, aes(x = week_label, y = m, group = 1)) +
+  geom_line(color = condition_colors["Treatment"], linewidth = 0.9) +
+  geom_point(color = condition_colors["Treatment"], size = 2.5) +
+  geom_errorbar(aes(ymin = m - se, ymax = m + se),
+                color = condition_colors["Treatment"], width = 0.2, linewidth = 0.7) +
+  labs(
+    title = "Weekly Chat Sessions Over Time (Treatment Group)",
+    x     = NULL,
+    y     = "Mean chat sessions per week"
+  )
+```

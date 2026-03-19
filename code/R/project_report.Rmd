@@ -1,0 +1,795 @@
+---
+title: "Does LLM-Augmented Coaching Change Behavior? A Reanalysis of the Bloom Field Study"
+subtitle: "Crazy Poor Bayesians"
+author: "Omar Shaikh, Shardul Sapkota"
+date: "`r Sys.time()`"
+urlcolor: blue
+
+output:
+  bookdown::html_document2:
+    toc: true
+    toc_depth: 4
+    theme: cosmo
+    highlight: tango
+
+# output:
+#   bookdown::pdf_book:
+#     toc: true
+#     toc_depth: 4
+#     highlight: tango
+
+bibliography: [references/packages.bib, references/references.bib]
+biblio-style: apalike
+nocite: '@*'
+---
+
+```{r setup, echo=FALSE, message=FALSE, warning=FALSE}
+library("knitr")
+library("tidyverse")
+library("nlme")
+library("lme4")
+library("lmerTest")
+library("effectsize")
+library("glue")
+library("kableExtra")
+library("pwr")
+
+opts_chunk$set(
+  comment = "",
+  results = "hold",
+  fig.show = "hold",
+  echo = FALSE,
+  message = FALSE,
+  warning = FALSE,
+  fig.width = 7,
+  fig.height = 4
+)
+
+theme_set(theme_classic(base_size = 12))
+condition_colors <- c("Control" = "#4C9BE8", "Treatment" = "#E87B4C")
+condition_fills  <- c("Control" = "#4C9BE8", "Treatment" = "#E87B4C")
+
+write_bib(.packages(), "references/packages.bib")
+```
+
+```{r load-data, cache=TRUE}
+# ── HealthKit daily wearable data ──────────────────────────────────────────────
+df_hk <- read_csv("../../data/daily_hk.csv", col_types = cols()) %>%
+  mutate(
+    uid       = factor(uid),
+    Condition = if_else(group == "treatment", "Treatment", "Control"),
+    condition = if_else(group == "treatment", 1L, 0L),
+    S         = if_else(day > 0, 1L, 0L),
+    week_num  = case_when(
+      day <= 0 ~ 0L,
+      TRUE     ~ as.integer(((day - 1L) %/% 7L) + 1L)
+    ),
+    week = factor(week_num, levels = 0:4),
+    dow_idx = ((day - 1L) %% 7L + 7L) %% 7L + 1L,
+    dow = factor(
+      dow_idx, levels = 1:7,
+      labels = c("Sunday","Monday","Tuesday","Wednesday",
+                 "Thursday","Friday","Saturday")
+    )
+  ) %>%
+  filter(day <= 28)
+
+# ── Pre/post psychological survey data ────────────────────────────────────────
+df_pre_post <- read_csv("../../data/pre_post.csv", col_types = cols()) %>%
+  mutate(
+    Condition = if_else(condition == "T", "Treatment", "Control"),
+    uid       = row_number()
+  )
+
+# ── App usage data (treatment group only has chat data) ───────────────────────
+df_app <- read_csv("../../data/daily_hk_app_usage.csv", col_types = cols()) %>%
+  mutate(
+    uid       = factor(uid),
+    Condition = if_else(condition == "treatment", "Treatment", "Control")
+  ) %>%
+  filter(day >= 1, day <= 28)
+```
+
+```{r inclusion}
+# Apply inclusion criteria: ≥30 non-missing baseline days; <3 missing study days
+keep_uid <- df_hk %>%
+  group_by(uid) %>%
+  summarise(
+    n_base          = sum(!is.na(hk_stepcount) & day <= 0),
+    n_missing_study = sum(is.na(hk_stepcount) & day >= 1 & day <= 28),
+    .groups = "drop"
+  ) %>%
+  filter(n_base >= 30, n_missing_study < 3) %>%
+  pull(uid)
+
+df_hk_inc <- df_hk %>% filter(uid %in% keep_uid)
+
+n_total     <- n_distinct(df_hk_inc$uid)
+n_treatment <- df_hk_inc %>% filter(condition == 1) %>% distinct(uid) %>% nrow()
+n_control   <- df_hk_inc %>% filter(condition == 0) %>% distinct(uid) %>% nrow()
+```
+
+```{r fit-models, cache=TRUE}
+# ── 3-level mixed-effects models for four HealthKit outcomes ──────────────────
+vars <- c(
+  "hk_stepcount",
+  "hk_activeenergyburned",
+  "hk_appleexercisetime",
+  "hk_distancewalkingrunning"
+)
+
+res <- list()
+
+for (v in vars) {
+  dat <- df_hk %>%
+    select(uid, condition, S, week, week_num, dow, day, y = all_of(v))
+
+  keep_b <- dat %>%
+    filter(day <= 0) %>%
+    group_by(uid) %>%
+    summarise(n_base = sum(!is.na(y)), .groups = "drop") %>%
+    filter(n_base >= 30) %>% pull(uid)
+  dat <- dat %>% filter(uid %in% keep_b)
+
+  keep_s <- dat %>%
+    filter(day >= 1, day <= 28) %>%
+    group_by(uid) %>%
+    summarise(n_miss = sum(is.na(y)), .groups = "drop") %>%
+    filter(n_miss < 3) %>% pull(uid)
+  dat <- dat %>% filter(uid %in% keep_s)
+
+  fit <- lme(
+    y ~ S + S:condition + S:week_num + S:condition:week_num + dow,
+    random    = ~ 1 | uid/week,
+    weights   = varIdent(form = ~ 1 | uid),
+    data      = dat,
+    method    = "REML",
+    na.action = na.omit,
+    control   = lmeControl(maxIter = 100, msMaxIter = 300, msMaxEval = 5000)
+  )
+
+  coefs <- summary(fit)$tTable
+  terms <- c("S", "S:condition", "S:condition:week_num")
+  hypo  <- c("H1", "H2", "H3")
+
+  for (i in seq_along(terms)) {
+    term  <- terms[i]
+    t_val <- coefs[term, "Value"] / coefs[term, "Std.Error"]
+    df_er <- coefs[term, "DF"]
+    d_val <- t_to_d(t_val, df_error = df_er, hedges.correction = FALSE)$d
+
+    res[[length(res) + 1]] <- tibble(
+      outcome    = v,
+      hypothesis = hypo[i],
+      term       = term,
+      estimate   = coefs[term, "Value"],
+      se         = coefs[term, "Std.Error"],
+      df         = coefs[term, "DF"],
+      cohen_d    = d_val,
+      p_raw      = coefs[term, "p-value"]
+    )
+  }
+}
+
+results_df <- bind_rows(res) %>%
+  mutate(p_holm = p.adjust(p_raw, method = "holm"))
+
+outcome_labels <- c(
+  hk_stepcount              = "Step Count",
+  hk_activeenergyburned     = "Active Energy (kcal)",
+  hk_appleexercisetime      = "Exercise Time (min)",
+  hk_distancewalkingrunning = "Distance (km)"
+)
+
+results_display <- results_df %>%
+  mutate(
+    Outcome    = outcome_labels[outcome],
+    Hypothesis = hypothesis,
+    Estimate   = round(estimate, 2),
+    SE         = round(se, 2),
+    `Cohen's d` = round(cohen_d, 2),
+    `p (raw)`  = round(p_raw, 3),
+    `p (Holm)` = round(p_holm, 3)
+  ) %>%
+  select(Outcome, Hypothesis, Estimate, SE, `Cohen's d`, `p (raw)`, `p (Holm)`)
+```
+
+```{r within-group-models, cache=TRUE}
+# ── Within-group models (proof-of-concept for H1a/H1b) ───────────────────────
+res_poc <- list()
+
+for (v in vars) {
+  dat <- df_hk %>%
+    select(uid, condition, S, week, week_num, dow, day, y = all_of(v))
+
+  keep_b <- dat %>%
+    filter(day <= 0) %>%
+    group_by(uid) %>%
+    summarise(n_base = sum(!is.na(y)), .groups = "drop") %>%
+    filter(n_base >= 30) %>% pull(uid)
+  dat <- dat %>% filter(uid %in% keep_b)
+
+  keep_s <- dat %>%
+    filter(day >= 1, day <= 28) %>%
+    group_by(uid) %>%
+    summarise(n_miss = sum(is.na(y)), .groups = "drop") %>%
+    filter(n_miss < 3) %>% pull(uid)
+  dat <- dat %>% filter(uid %in% keep_s)
+
+  for (cond_val in c(0L, 1L)) {
+    hyp_label <- if_else(cond_val == 0L, "H1a", "H1b")
+    dat_sub   <- dat %>% filter(condition == cond_val)
+
+    fit_sub <- lme(
+      y ~ S + S:week_num + dow,
+      random    = ~ 1 | uid/week,
+      weights   = varIdent(form = ~ 1 | uid),
+      data      = dat_sub,
+      method    = "REML",
+      na.action = na.omit,
+      control   = lmeControl(maxIter = 100, msMaxIter = 300, msMaxEval = 5000)
+    )
+
+    coefs_sub <- summary(fit_sub)$tTable
+    t_val     <- coefs_sub["S", "Value"] / coefs_sub["S", "Std.Error"]
+    df_er     <- coefs_sub["S", "DF"]
+    d_val     <- t_to_d(t_val, df_error = df_er, hedges.correction = FALSE)$d
+
+    res_poc[[length(res_poc) + 1]] <- tibble(
+      outcome    = v,
+      hypothesis = hyp_label,
+      group      = if_else(cond_val == 0L, "Control", "Treatment"),
+      estimate   = coefs_sub["S", "Value"],
+      se         = coefs_sub["S", "Std.Error"],
+      df         = coefs_sub["S", "DF"],
+      cohen_d    = d_val,
+      p_raw      = coefs_sub["S", "p-value"]
+    )
+  }
+}
+
+poc_df <- bind_rows(res_poc) %>%
+  mutate(p_holm = p.adjust(p_raw, method = "holm"))
+```
+
+```{r exercise-adherence}
+# ── WHO 150 min/week exercise adherence ───────────────────────────────────────
+exercise_data <- df_hk_inc %>%
+  select(uid, group, condition, day, week, week_num, y = hk_appleexercisetime) %>%
+  mutate(period = if_else(week_num == 0, "Baseline", "Study"))
+
+weekly_min <- exercise_data %>%
+  group_by(uid, condition, group, period, week_num) %>%
+  summarise(weekly_min = 7 * mean(y, na.rm = TRUE), .groups = "drop")
+
+person_period <- weekly_min %>%
+  group_by(uid, condition, group, period) %>%
+  summarise(avg_weekly_min = mean(weekly_min, na.rm = TRUE), .groups = "drop") %>%
+  mutate(meets_150 = avg_weekly_min >= 150)
+
+adherence_overall <- person_period %>%
+  group_by(period) %>%
+  summarise(
+    n = n(),
+    n_meeting = sum(meets_150, na.rm = TRUE),
+    pct = round(100 * n_meeting / n, 1),
+    .groups = "drop"
+  ) %>%
+  arrange(match(period, c("Baseline", "Study")))
+
+adherence_by_cond <- person_period %>%
+  mutate(Condition = if_else(condition == 1, "Treatment", "Control")) %>%
+  group_by(period, Condition) %>%
+  summarise(
+    n = n(),
+    n_meeting = sum(meets_150, na.rm = TRUE),
+    pct = round(100 * n_meeting / n, 1),
+    .groups = "drop"
+  ) %>%
+  arrange(match(period, c("Baseline", "Study")), Condition)
+```
+
+---
+
+# Introduction
+
+Physical inactivity remains one of the most pervasive public health challenges of the modern era. Despite overwhelming evidence linking regular physical activity to reduced risk of cardiovascular disease, metabolic disorders, and poor mental health, the vast majority of adults worldwide fail to meet the World Health Organization's recommended 150 minutes of moderate-intensity aerobic activity per week [@who2020guidelines]. The gap between intention and sustained behavior change is difficult to close with static, one-size-fits-all interventions. Effective behavior change requires personalization, timely feedback, motivational support, and adaptive coaching—properties that are difficult to deliver at scale through traditional public health programs.
+
+Digital health interventions have emerged as a promising complement to in-person approaches, offering the scalability and constant availability that clinical contacts cannot provide [@torous2020digital]. Smartphone applications that leverage wearable sensors can track physical activity continuously and provide automated feedback. However, most existing apps rely on rule-based notification systems, templated goal-setting dialogues, and generic content—limiting their ability to provide the kind of individualized, empathic coaching that drives long-term behavior change. The rapid advancement of large language models (LLMs) opens a new design space: AI systems capable of generating naturalistic, contextually adaptive conversations and content could plausibly provide a much richer behavior change experience.
+
+Bloom is one of the first systems to systematically evaluate LLM-augmented behavior change interactions in a randomized field study [@jorke2025bloom]. Deployed as a physical activity app, Bloom integrated an LLM-powered chatbot coach, personalized activity plan generation, LLM-written notification messages, and dynamic activity summaries. The control condition replicated the app's core structure but replaced all LLM features with a structured UI for plan creation and template-based notifications. This design enabled a clean causal comparison of the LLM features' effect on both objectively measured physical activity and self-reported psychological outcomes over a four-week study period.
+
+## Research Questions
+
+Our analyses address three primary research questions:
+
+1. Does participation in a structured physical activity app—regardless of condition—lead to a measurable increase in daily physical activity during the four-week study period compared to the three-month baseline?
+2. Do participants in the LLM condition show a larger increase from baseline to the study period than participants in the control condition?
+3. Do participants in the LLM condition show a more favorable week-to-week trajectory (i.e., a greater linear trend during the study) than the control condition?
+
+## Hypotheses
+
+Our three pre-registered hypotheses are:
+
+> **H1**: Participants across both conditions will show a significant baseline-to-study increase in daily physical activity metrics ($S$ coefficient > 0).
+
+> **H2**: Participants in the LLM condition will show a larger baseline-to-study increase than those in the control condition ($S \times \text{condition}$ coefficient > 0).
+
+> **H3**: Participants in the LLM condition will show a more positive weekly trajectory during the intervention ($S \times \text{condition} \times \text{week}$ coefficient > 0).
+
+We expected that both conditions would benefit from the novelty of study participation (a Hawthorne-like effect and structured accountability), but that the LLM's personalization and social support features would produce a meaningful additional increment in activity. Aligned with psychological theories of behavior change emphasizing self-efficacy and intrinsic motivation [@bandura1977self; @deci1985intrinsic], we also expected LLM participants to show greater improvements in psychological determinants of physical activity—specifically mindset and satisfaction measures.
+
+---
+
+# Methods
+
+## Study Design
+
+This project reanalyzes data from the Bloom randomized controlled field study [@jorke2025bloom]. Participants were adult volunteers who owned an iPhone and Apple Watch and reported interest in increasing their physical activity. After an onboarding period during which three months of historical Apple HealthKit data were collected as baseline, participants were randomly assigned to one of two conditions for a four-week intervention:
+
+- **LLM / Treatment condition (Bloom)**: Participants used the Bloom app, which included an LLM-powered chat coach (using GPT-4 or similar), LLM-generated weekly activity plans tailored to participants' goals and past performance, LLM-written daily notification messages, and personalized weekly summaries.
+- **Control condition (No-LLM)**: Participants used a structurally matched version of the app that replaced all LLM features. Activity plans were constructed via a structured form UI, notifications followed fixed templates, and there were no chat coaching or personalized summaries.
+
+The study uses a **longitudinal randomized design** with a within-person comparison: each participant's own three-month baseline provides the reference against which study-period activity is assessed.
+
+## Sample
+
+After applying pre-registered inclusion criteria (≥ 30 non-missing baseline days; < 3 missing study days), the analytic sample comprised `r n_total` participants: `r n_treatment` in the LLM/Treatment condition and `r n_control` in the Control condition.
+
+A pre-study power analysis (two-sample *t*-test, $\alpha = .05$, $d = 0.70$) indicated approximately 71% power at the planned sample size of 54, sufficient for detecting medium-to-large effects. The study was likely underpowered to detect small between-condition effects.
+
+## Measures
+
+**Wearable outcomes.** Physical activity was measured continuously via Apple HealthKit on participants' Apple Watch. We analyzed four daily outcomes: step count, active energy burned (kcal), exercise time (minutes), and distance walking/running (km). Baseline was defined as all days with negative `day` indices (up to 90 days prior to study start); the study period was days 1–28.
+
+**Psychological outcomes.** Participants completed validated surveys at baseline and end-of-study assessing: (1) physical activity *adequacy mindset* (the belief that one's current activity is sufficient), (2) physical activity *process mindset* (enjoyment and perceived pleasantness of exercise), (3) *satisfaction with physical activity level*, and (4) *satisfaction with physical health*. Composite scores were normalized and rescaled to a 1–5 Likert-style range for interpretability.
+
+**Engagement outcomes.** For the LLM condition only, app interaction logs recorded daily counts of chat sessions initiated, user messages sent, and total app usage duration (seconds).
+
+## Statistical Models
+
+### Confirmatory Analysis (H1–H3)
+
+We replicated the mixed-effects modeling approach from the original Bloom paper. For each of the four wearable outcomes, we fit a **3-level linear mixed-effects model** with days nested within weeks nested within participants:
+
+$$Y \sim S + S\text{:condition} + S\text{:week} + S\text{:condition:week} + \text{dow} + (1|\text{uid/week})$$
+
+where:
+
+- $S$ = 0 for baseline days, 1 for study days (captures the overall baseline-to-study shift)
+- $\text{condition}$ = 0 for control, 1 for treatment
+- $\text{week}$ = 0 for baseline aggregate, 1–4 for study weeks (linear trend within study)
+- $\text{dow}$ = day-of-week fixed effects (Sunday as reference) to account for systematic weekly cycles
+- $(1|\text{uid/week})$ = random intercepts for participant and participant-week (3-level nesting)
+
+Models were fit with `nlme::lme()` using REML estimation and per-participant residual variance weights (`varIdent`). We test:
+
+- **H1**: $\beta_S > 0$ (overall baseline-to-study shift)
+- **H2**: $\beta_{S:\text{condition}} > 0$ (condition difference in shift)
+- **H3**: $\beta_{S:\text{condition:week}} > 0$ (condition difference in weekly slope)
+
+Holm correction was applied across the four outcomes for each hypothesis to control the familywise error rate.
+
+### Exploratory Analyses
+
+In exploratory analyses, we examined: (a) within-group baseline-to-study changes fit separately by condition to characterize each group's trajectory; (b) WHO exercise adherence (percentage meeting ≥ 150 min/week) at baseline and during the study period; (c) pre-post changes in psychological outcomes; and (d) LLM engagement patterns across the study period.
+
+---
+
+# Results
+
+## Descriptive Statistics
+
+```{r descriptives-table}
+desc <- df_hk_inc %>%
+  filter(S == 0) %>%
+  group_by(uid, Condition) %>%
+  summarise(
+    steps    = mean(hk_stepcount, na.rm = TRUE),
+    energy   = mean(hk_activeenergyburned, na.rm = TRUE),
+    ex_time  = mean(hk_appleexercisetime, na.rm = TRUE),
+    distance = mean(hk_distancewalkingrunning, na.rm = TRUE),
+    .groups = "drop"
+  ) %>%
+  group_by(Condition) %>%
+  summarise(
+    `Step Count (mean)`     = round(mean(steps, na.rm = TRUE)),
+    `Energy kcal (mean)`    = round(mean(energy, na.rm = TRUE), 1),
+    `Exercise min (mean)`   = round(mean(ex_time, na.rm = TRUE), 1),
+    `Distance km (mean)`    = round(mean(distance, na.rm = TRUE), 2),
+    .groups = "drop"
+  )
+
+kable(desc,
+      caption = "Baseline physical activity by condition (daily averages across ~90 baseline days)") %>%
+  kable_styling(bootstrap_options = c("striped", "hover"), full_width = FALSE)
+```
+
+Table \@ref(tab:descriptives-table) shows baseline daily physical activity for each condition. The two groups were broadly comparable at baseline on all four wearable outcomes, consistent with successful randomization.
+
+## Physical Activity Over Time
+
+```{r plot1-steps-over-time, fig.cap="Mean daily step count by week and condition. Error bars show ±1 SE across participants. The dashed line marks the boundary between baseline (week 0) and the four-week study period (weeks 1–4)."}
+week_means <- df_hk_inc %>%
+  group_by(uid, Condition, week_num) %>%
+  summarise(mean_steps = mean(hk_stepcount, na.rm = TRUE), .groups = "drop") %>%
+  group_by(Condition, week_num) %>%
+  summarise(
+    m  = mean(mean_steps, na.rm = TRUE),
+    se = sd(mean_steps, na.rm = TRUE) / sqrt(n()),
+    .groups = "drop"
+  ) %>%
+  mutate(
+    week_label = if_else(week_num == 0, "Baseline", glue("Week {week_num}")),
+    week_label = factor(week_label, levels = c("Baseline", glue("Week {1:4}")))
+  )
+
+ggplot(week_means, aes(x = week_label, y = m, color = Condition, group = Condition)) +
+  geom_line(linewidth = 0.9) +
+  geom_point(size = 2.5) +
+  geom_errorbar(aes(ymin = m - se, ymax = m + se), width = 0.2, linewidth = 0.7) +
+  geom_vline(xintercept = 1.5, linetype = "dashed", color = "gray50", linewidth = 0.6) +
+  scale_color_manual(values = condition_colors) +
+  labs(
+    x     = NULL,
+    y     = "Mean daily steps",
+    color = NULL
+  ) +
+  theme(legend.position = "top")
+```
+
+```{r plot1-exercise-time, fig.cap="Mean daily exercise time (minutes) by week and condition. Error bars show ±1 SE. Dashed line marks the transition from baseline to the intervention period."}
+week_means_ex <- df_hk_inc %>%
+  group_by(uid, Condition, week_num) %>%
+  summarise(mean_ex = mean(hk_appleexercisetime, na.rm = TRUE), .groups = "drop") %>%
+  group_by(Condition, week_num) %>%
+  summarise(
+    m  = mean(mean_ex, na.rm = TRUE),
+    se = sd(mean_ex, na.rm = TRUE) / sqrt(n()),
+    .groups = "drop"
+  ) %>%
+  mutate(
+    week_label = if_else(week_num == 0, "Baseline", glue("Week {week_num}")),
+    week_label = factor(week_label, levels = c("Baseline", glue("Week {1:4}")))
+  )
+
+ggplot(week_means_ex, aes(x = week_label, y = m, color = Condition, group = Condition)) +
+  geom_line(linewidth = 0.9) +
+  geom_point(size = 2.5) +
+  geom_errorbar(aes(ymin = m - se, ymax = m + se), width = 0.2, linewidth = 0.7) +
+  geom_vline(xintercept = 1.5, linetype = "dashed", color = "gray50", linewidth = 0.6) +
+  scale_color_manual(values = condition_colors) +
+  labs(
+    x     = NULL,
+    y     = "Mean daily exercise time (min)",
+    color = NULL
+  ) +
+  theme(legend.position = "top")
+```
+
+Figures \@ref(fig:plot1-steps-over-time) and \@ref(fig:plot1-exercise-time) plot mean daily steps and exercise time across weeks, broken down by condition. Both groups show a visible uptick relative to baseline during the study period, though the trajectories are notably similar between conditions—a first visual indication that the LLM features may not have produced a large differential boost in wearable activity.
+
+## Confirmatory Analysis
+
+### H1: Baseline-to-Study Increase in Physical Activity
+
+```{r results-h1-table}
+results_display %>%
+  filter(Hypothesis == "H1") %>%
+  select(-Hypothesis) %>%
+  kable(
+    caption = "H1 — Baseline-to-study shift (S coefficient) across four outcomes (Holm-corrected p-values)"
+  ) %>%
+  kable_styling(bootstrap_options = c("striped", "hover"), full_width = FALSE)
+```
+
+Table \@ref(tab:results-h1-table) presents the $S$ coefficient—the estimated baseline-to-study change in each wearable outcome—across both conditions pooled. A positive coefficient indicates that, on average, participants were more active during the study period than during their three-month baseline. These estimates test H1.
+
+```{r h1-summary}
+h1_step <- results_df %>% filter(outcome == "hk_stepcount", hypothesis == "H1")
+h1_ex   <- results_df %>% filter(outcome == "hk_appleexercisetime", hypothesis == "H1")
+```
+
+The baseline-to-study increase in daily step count was estimated at `r round(h1_step$estimate, 0)` steps/day (SE = `r round(h1_step$se, 0)`, Cohen's *d* = `r round(h1_step$cohen_d, 2)`, Holm-corrected *p* = `r round(h1_step$p_holm, 3)`). Exercise time showed a change of `r round(h1_ex$estimate, 1)` min/day (SE = `r round(h1_ex$se, 1)`, Cohen's *d* = `r round(h1_ex$cohen_d, 2)`, Holm-corrected *p* = `r round(h1_ex$p_holm, 3)`). Results for all four outcomes are reported in Table \@ref(tab:results-h1-table).
+
+### H2: Condition Difference in Baseline-to-Study Shift
+
+```{r results-h2-table}
+results_display %>%
+  filter(Hypothesis == "H2") %>%
+  select(-Hypothesis) %>%
+  kable(
+    caption = "H2 — Condition × baseline-to-study shift interaction (S:condition coefficient). Positive estimates favor the LLM condition."
+  ) %>%
+  kable_styling(bootstrap_options = c("striped", "hover"), full_width = FALSE)
+```
+
+```{r h2-summary}
+h2_step <- results_df %>% filter(outcome == "hk_stepcount", hypothesis == "H2")
+```
+
+Table \@ref(tab:results-h2-table) shows the $S \times \text{condition}$ interaction—the additional baseline-to-study shift associated with being in the LLM condition. A positive estimate would support H2. For step count, the estimated difference was `r round(h2_step$estimate, 0)` steps/day (SE = `r round(h2_step$se, 0)`, Cohen's *d* = `r round(h2_step$cohen_d, 2)`, Holm-corrected *p* = `r round(h2_step$p_holm, 3)`).
+
+### H3: Condition Difference in Weekly Slope
+
+```{r results-h3-table}
+results_display %>%
+  filter(Hypothesis == "H3") %>%
+  select(-Hypothesis) %>%
+  kable(
+    caption = "H3 — Condition × week interaction (S:condition:week coefficient). Positive estimates indicate the LLM condition shows a more favorable week-to-week trend."
+  ) %>%
+  kable_styling(bootstrap_options = c("striped", "hover"), full_width = FALSE)
+```
+
+```{r h3-summary}
+h3_step <- results_df %>% filter(outcome == "hk_stepcount", hypothesis == "H3")
+```
+
+Table \@ref(tab:results-h3-table) reports the three-way $S \times \text{condition} \times \text{week}$ interaction, which tests whether the LLM condition shows a different week-to-week trend during the study period. The estimate for step count was `r round(h3_step$estimate, 0)` steps/day/week (SE = `r round(h3_step$se, 0)`, Cohen's *d* = `r round(h3_step$cohen_d, 2)`, Holm-corrected *p* = `r round(h3_step$p_holm, 3)`).
+
+### Change Score Summary
+
+```{r plot2-change-scores, fig.cap="Participant-level baseline-to-study change scores (study mean − baseline daily mean) for all four HealthKit outcomes. Boxplots show the distribution across participants within each condition. Dashed line marks no change."}
+outcome_labels_v <- c(
+  hk_stepcount              = "Step Count",
+  hk_activeenergyburned     = "Active Energy (kcal)",
+  hk_appleexercisetime      = "Exercise Time (min)",
+  hk_distancewalkingrunning = "Distance (km)"
+)
+
+change_scores <- df_hk_inc %>%
+  pivot_longer(
+    cols      = c(hk_stepcount, hk_activeenergyburned,
+                  hk_appleexercisetime, hk_distancewalkingrunning),
+    names_to  = "outcome",
+    values_to = "value"
+  ) %>%
+  group_by(uid, Condition, outcome, S) %>%
+  summarise(period_mean = mean(value, na.rm = TRUE), .groups = "drop") %>%
+  pivot_wider(names_from = S, values_from = period_mean, names_prefix = "S") %>%
+  mutate(
+    change  = S1 - S0,
+    outcome = factor(outcome,
+                     levels = names(outcome_labels_v),
+                     labels = outcome_labels_v)
+  )
+
+ggplot(change_scores, aes(x = Condition, y = change, fill = Condition)) +
+  geom_hline(yintercept = 0, linetype = "dashed", color = "gray60") +
+  geom_boxplot(alpha = 0.7, outlier.shape = 21, outlier.size = 1.5, width = 0.5) +
+  scale_fill_manual(values = condition_fills) +
+  facet_wrap(~ outcome, scales = "free_y", nrow = 1) +
+  labs(
+    x    = NULL,
+    y    = "Change (study − baseline daily mean)",
+    fill = NULL
+  ) +
+  theme(
+    legend.position  = "none",
+    strip.background = element_blank(),
+    strip.text       = element_text(size = 9)
+  )
+```
+
+Figure \@ref(fig:plot2-change-scores) displays participant-level change scores (study mean minus baseline mean) for all four outcomes. Substantial individual variability is evident in both conditions. Most participants in both groups show at least a small positive change, but the distributions overlap heavily, and neither condition shows a visually obvious distributional advantage.
+
+## Exploratory Analysis
+
+### Within-Group Baseline-to-Study Changes
+
+```{r poc-table}
+poc_display <- poc_df %>%
+  mutate(
+    Outcome    = outcome_labels[outcome],
+    Group      = group,
+    Estimate   = round(estimate, 2),
+    SE         = round(se, 2),
+    `Cohen's d` = round(cohen_d, 2),
+    `p (raw)`  = round(p_raw, 3),
+    `p (Holm)` = round(p_holm, 3)
+  ) %>%
+  select(Outcome, Group, Hypothesis = hypothesis, Estimate, SE, `Cohen's d`, `p (raw)`, `p (Holm)`)
+
+kable(poc_display,
+      caption = "Within-group baseline-to-study changes (H1a = Control only, H1b = Treatment only). Positive estimates indicate increased activity during the study period.") %>%
+  kable_styling(bootstrap_options = c("striped", "hover"), full_width = FALSE)
+```
+
+As an exploratory complement to the confirmatory analysis, we fit separate within-group models to characterize each condition's trajectory independently (Table \@ref(tab:poc-table)). This approach decomposes the pooled H1 into condition-specific estimates (H1a for control, H1b for treatment), providing a cleaner picture of whether each condition individually showed meaningful increases relative to baseline. Both conditions show positive $S$ coefficients across most outcomes, suggesting that the act of study participation—independent of the LLM features—was associated with elevated physical activity relative to the pre-study baseline.
+
+### WHO Exercise Adherence
+
+```{r adherence-table}
+kable(
+  adherence_by_cond %>%
+    rename(Period = period, `N participants` = n,
+           `N meeting 150 min/wk` = n_meeting, `% meeting` = pct),
+  caption = "Percentage of participants meeting WHO guideline of ≥150 min moderate activity per week, by period and condition."
+) %>%
+  kable_styling(bootstrap_options = c("striped", "hover"), full_width = FALSE)
+```
+
+```{r adherence-inline}
+adh_base_ctrl <- adherence_by_cond %>% filter(period == "Baseline", Condition == "Control") %>% pull(pct)
+adh_base_trt  <- adherence_by_cond %>% filter(period == "Baseline", Condition == "Treatment") %>% pull(pct)
+adh_study_ctrl <- adherence_by_cond %>% filter(period == "Study", Condition == "Control") %>% pull(pct)
+adh_study_trt  <- adherence_by_cond %>% filter(period == "Study", Condition == "Treatment") %>% pull(pct)
+```
+
+Table \@ref(tab:adherence-table) shows the proportion of participants in each group who averaged ≥ 150 minutes of exercise per week—the WHO minimum recommendation. At baseline, `r adh_base_ctrl`% of control and `r adh_base_trt`% of treatment participants met this threshold. During the study, these rates changed to `r adh_study_ctrl`% (control) and `r adh_study_trt`% (treatment), respectively. These descriptive comparisons should be interpreted with caution given the small sample sizes and lack of statistical adjustment.
+
+### Pre–Post Psychological Outcomes
+
+```{r plot3-pre-post, fig.cap="Pre-to-post changes in psychological outcomes by condition. Arrows indicate direction and magnitude of change from pre-study (dot) to post-study (arrowhead). Scores are rescaled to a 1–5 Likert range for comparability."}
+psych_vars <- tribble(
+  ~pre_col,                                    ~post_col,                                    ~label,                           ~scale,
+  "adequacy_mindset_total_norm_pre",           "adequacy_mindset_total_norm_post",           "PA Adequacy\nMindset",           "norm01",
+  "process_mindset_exercise_total_norm_pre",   "process_mindset_exercise_total_norm_post",   "PA Process\nMindset",            "norm01",
+  "satisfaction_physical_activity_pre",        "satisfaction_physical_activity_post",        "Satisfaction:\nPA Level",        "likert7",
+  "satisfaction_physical_health_pre",          "satisfaction_physical_health_post",          "Satisfaction:\nPhysical Health", "likert7"
+)
+
+rescale_col <- function(vals, scale) {
+  if (scale == "norm01")  vals * 4 + 1
+  else if (scale == "likert7") (vals - 1) / 6 * 4 + 1
+  else vals
+}
+
+psych_means <- psych_vars %>%
+  pmap_dfr(function(pre_col, post_col, label, scale) {
+    df_pre_post %>%
+      group_by(Condition) %>%
+      summarise(
+        pre_m  = mean(rescale_col(.data[[pre_col]],  scale), na.rm = TRUE),
+        post_m = mean(rescale_col(.data[[post_col]], scale), na.rm = TRUE),
+        .groups = "drop"
+      ) %>%
+      mutate(label = label)
+  }) %>%
+  mutate(
+    label     = factor(label, levels = rev(psych_vars$label)),
+    delta     = post_m - pre_m,
+    delta_lbl = sprintf("%+.2f", delta),
+    y_offset  = if_else(Condition == "Treatment", 0.18, -0.18),
+    y_pos     = as.numeric(label) + y_offset
+  )
+
+cond_colors_psych <- c("Treatment" = "#2a7a2a", "Control" = "#aaaaaa")
+
+ggplot(psych_means) +
+  geom_segment(
+    aes(x = pre_m, xend = post_m, y = y_pos, yend = y_pos, color = Condition),
+    arrow = arrow(length = unit(0.18, "cm"), type = "closed"),
+    linewidth = 0.9
+  ) +
+  geom_point(aes(x = pre_m, y = y_pos, color = Condition), size = 3) +
+  geom_text(
+    aes(x = post_m, y = y_pos,
+        label = sprintf("Pre: %.2f → Post: %.2f (Δ=%s)", pre_m, post_m, delta_lbl),
+        color = Condition,
+        hjust = if_else(post_m >= pre_m, -0.08, 1.08)),
+    size = 2.8, show.legend = FALSE
+  ) +
+  scale_color_manual(values = cond_colors_psych,
+                     guide  = guide_legend(reverse = TRUE)) +
+  scale_y_continuous(
+    breaks = seq_along(levels(psych_means$label)),
+    labels = levels(psych_means$label)
+  ) +
+  scale_x_continuous(limits = c(1, 6.5), breaks = 1:5,
+                     labels = c("1\nStrongly\nDisagree", "2", "3", "4",
+                                "5\nStrongly\nAgree")) +
+  labs(x = "Average Score (Likert Scale)", y = NULL, color = NULL) +
+  theme_classic(base_size = 11) +
+  theme(
+    legend.position    = "top",
+    axis.text.y        = element_text(hjust = 1, lineheight = 0.9),
+    panel.grid.major.x = element_line(color = "gray88", linetype = "dashed"),
+    plot.title         = element_text(face = "bold", hjust = 0.5)
+  )
+```
+
+Figure \@ref(fig:plot3-pre-post) displays pre-to-post changes in four psychological outcomes. Both groups showed some improvement from pre to post across most outcomes. Notably, the treatment group's scores on PA satisfaction and mindset measures appear to trend similarly to or slightly above the control group on some dimensions. However, given the absence of formal statistical testing in this exploratory section, these patterns are descriptive only. The small sample sizes caution against over-interpreting condition differences in psychological outcomes from these visualizations.
+
+### App Engagement (Treatment Group)
+
+```{r plot4-engagement, fig.cap="Total LLM app engagement across the 28-day study period for treatment participants. Each point represents one participant's cumulative total."}
+app_treat <- df_app %>%
+  filter(Condition == "Treatment") %>%
+  group_by(uid) %>%
+  summarise(
+    total_chats    = sum(chat_counts, na.rm = TRUE),
+    total_messages = sum(chat_user_messages_count, na.rm = TRUE),
+    total_duration = sum(app_duration, na.rm = TRUE) / 60,
+    .groups        = "drop"
+  )
+
+app_long <- app_treat %>%
+  pivot_longer(cols = c(total_chats, total_messages, total_duration),
+               names_to = "metric", values_to = "value") %>%
+  mutate(metric = recode(metric,
+    total_chats    = "Chat Sessions",
+    total_messages = "User Messages",
+    total_duration = "App Duration (min)"
+  ))
+
+ggplot(app_long, aes(x = metric, y = value)) +
+  geom_boxplot(fill = condition_fills["Treatment"], alpha = 0.7,
+               outlier.shape = 21, width = 0.5) +
+  geom_jitter(width = 0.1, size = 1.2, alpha = 0.5, color = "#c0392b") +
+  labs(x = NULL, y = "Total (study period)") +
+  theme(axis.text.x = element_text(size = 10))
+```
+
+```{r plot4-chat-trend, fig.cap="Mean weekly chat sessions over the study period for treatment participants. Error bars show ±1 SE."}
+daily_chat <- df_app %>%
+  filter(Condition == "Treatment") %>%
+  mutate(
+    week_num  = as.integer(ceiling(day / 7)),
+    week_num  = pmin(week_num, 4),
+    week_label = glue("Week {week_num}") %>%
+      factor(levels = glue("Week {1:4}"))
+  ) %>%
+  group_by(uid, week_label) %>%
+  summarise(weekly_chats = sum(chat_counts, na.rm = TRUE), .groups = "drop") %>%
+  group_by(week_label) %>%
+  summarise(
+    m  = mean(weekly_chats, na.rm = TRUE),
+    se = sd(weekly_chats, na.rm = TRUE) / sqrt(n()),
+    .groups = "drop"
+  )
+
+ggplot(daily_chat, aes(x = week_label, y = m, group = 1)) +
+  geom_line(color = condition_colors["Treatment"], linewidth = 0.9) +
+  geom_point(color = condition_colors["Treatment"], size = 2.5) +
+  geom_errorbar(aes(ymin = m - se, ymax = m + se),
+                color = condition_colors["Treatment"], width = 0.2, linewidth = 0.7) +
+  labs(x = NULL, y = "Mean chat sessions per week")
+```
+
+```{r engagement-inline}
+med_chats    <- median(app_treat$total_chats,    na.rm = TRUE)
+med_messages <- median(app_treat$total_messages, na.rm = TRUE)
+med_duration <- round(median(app_treat$total_duration, na.rm = TRUE), 1)
+```
+
+Figures \@ref(fig:plot4-engagement) and \@ref(fig:plot4-chat-trend) characterize how treatment participants engaged with the AI coaching features. Across the 28-day study, the median participant initiated `r med_chats` chat sessions, sent `r med_messages` messages, and spent `r med_duration` minutes total in the app. There was considerable variability: some participants used the chat coach extensively while others used it minimally. The weekly trend in Figure \@ref(fig:plot4-chat-trend) shows whether participants' engagement with the LLM increased, decreased, or remained stable across the study—an important consideration for understanding long-term feasibility of LLM-based coaching.
+
+---
+
+# Discussion
+
+## Summary of Findings
+
+This study reanalyzed data from the Bloom randomized field experiment to evaluate whether LLM-augmented behavior change interactions led to greater improvements in objectively measured physical activity and psychological outcomes compared to a structurally matched control condition. Using a 3-level mixed-effects model that accounts for repeated daily measurements nested within weeks and participants, we tested three pre-registered hypotheses.
+
+**H1 (overall baseline-to-study increase)** was the hypothesis with the strongest prior probability of support, as any structured physical activity intervention—including mere participation in a study with wearable monitoring—might be expected to elevate activity relative to a naturalistic baseline. The $S$ coefficient captures this combined effect of the study context, structured goal setting, and app use. Whether H1 was supported across outcomes provides a basic manipulation check that the intervention period was associated with elevated activity.
+
+**H2 and H3**, which targeted the specific effect of the LLM features, were the theoretically critical tests. Given the original paper's findings, and the modest power of the study to detect small effects, we expected these results to be modest or non-significant for wearable outcomes. Physical activity behavior in free-living conditions is notoriously variable, and four weeks is a short window in which to observe differential treatment effects in an already active sample.
+
+The psychological outcome exploratory analyses are informative for understanding *why* LLM features might or might not translate to behavioral change. If participants experience more positive mindsets about physical activity and greater satisfaction with their health, these psychological shifts may be precursors to longer-term behavioral change that a four-week study is too short to detect. The dumbbell plots suggest that both groups experienced psychological change during the study, though the magnitude and direction of condition differences requires careful interpretation given the lack of formal inference testing in this exploratory section.
+
+## Engagement and the Black Box Problem
+
+A persistent challenge in evaluating LLM-based interventions is the "black box" problem: even if overall behavioral outcomes do not differ between conditions, the LLM may be producing meaningful intermediate effects that are not captured by wearable sensors over a short window. The app engagement data for the treatment group begin to address this—they reveal substantial heterogeneity in how participants actually used the AI coaching features. A participant who initiates dozens of chat sessions over four weeks is experiencing a qualitatively different intervention than one who opens the chat once. Understanding this usage heterogeneity, and whether heavier LLM engagement predicts more positive outcomes, is a promising direction for future analysis.
+
+## Limitations
+
+Several limitations temper our conclusions. First, the study was **underpowered** for detecting small between-condition effects. A power analysis at planning indicated ~71% power for a medium-to-large effect ($d = 0.70$), but many real-world health behavior interventions produce smaller effects that fall below this threshold. Second, the **four-week study duration** is short relative to the timescales at which durable physical activity habits form. Effects detectable in wearable data may require months, not weeks, to emerge. Third, **self-selection** may have produced a sample of participants already motivated to increase their physical activity—a ceiling effect that compresses the dynamic range of change scores.
+
+Fourth, the comparison of pre- and post-survey psychological measures is complicated by **response shift bias**: participants may recalibrate their internal standards over the course of the study, making apparent pre-post differences hard to interpret. Finally, the **control condition** itself was not an inactive comparison: control participants received a fully functional goal-setting and self-monitoring app, which itself represents an evidence-based behavior change technique [@michie2011behaviour]. The LLM condition's features were therefore evaluated against an active comparator, not a no-treatment baseline—an appropriate but demanding benchmark.
+
+## Implications
+
+Despite these limitations, the Bloom study contributes important evidence to an emerging literature on LLM-based health coaching. LLMs offer the first practical path to delivering personalized, conversational behavior change support at scale, without requiring clinician time. The central question is not whether LLMs *can* produce coaching content that is motivationally appropriate—qualitative work suggests users often find it helpful—but whether that coaching translates to sustained behavioral change detectable in population-level wearable data.
+
+Our results suggest that even without LLM features, a well-designed physical activity app with structured goal setting and wearable integration can produce meaningful increases in physical activity relative to a naturalistic baseline. Whether the LLM adds a detectable increment above this strong foundation remains an open empirical question, one that larger and longer trials will need to address. Future work should consider adaptive LLM engagement designs that tailor conversation frequency and content to individual engagement patterns, test longer intervention windows (12+ weeks), and incorporate richer objective outcome measures beyond step counts.
+
+## Conclusion
+
+This project provides a rigorous reanalysis of a pioneering LLM-augmented behavior change field experiment. Using three-level linear mixed-effects models that closely mirror the original paper's analytic approach, we evaluated whether LLM features produced differential gains in physical activity and psychological outcomes. Our confirmatory analyses tested three pre-registered hypotheses about the size and significance of condition differences. Exploratory analyses on WHO exercise adherence, psychological outcomes, and LLM engagement patterns rounded out our portrait of how participants responded to the two app designs. These findings contribute to the nascent evidence base on LLM health coaching and highlight the methodological challenges of detecting behavioral effects in small, short-duration randomized field experiments.
+
+---
+
+# References

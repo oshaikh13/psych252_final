@@ -1,0 +1,46 @@
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+Icon?
+._*
+.Spotlight-V100
+.Trashes
+
+# R / RStudio
+.Rhistory
+.Rapp.history
+.RData
+.Ruserdata
+.Rproj.user/
+*.Rcheck/
+
+# R package build artifacts
+*.tar.gz
+*.Rcheck
+
+# knitr / R Markdown
+*_cache/
+/cache/
+*.html
+!README.html
+
+# Bookdown
+_book/
+_bookdown_files/
+
+# pkgdown
+docs/
+reference/
+
+# Shiny token
+.httr-oauth
+
+# renv
+renv/library/
+renv/staging/
+renv/sandbox/
+renv.lock
+
+# Environment variables
+.Renviron
