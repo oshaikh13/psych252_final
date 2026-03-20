@@ -5,18 +5,18 @@ author: "Omar Shaikh, Shardul Sapkota"
 date: "`r Sys.time()`"
 urlcolor: blue
 
+# output:
+#  bookdown::html_document2:
+#    toc: true
+#    toc_depth: 4
+#    theme: cosmo
+#    highlight: tango
+
 output:
-  bookdown::html_document2:
+  bookdown::pdf_book:
     toc: true
     toc_depth: 4
-    theme: cosmo
     highlight: tango
-
-# output:
-#   bookdown::pdf_book:
-#     toc: true
-#     toc_depth: 4
-#     highlight: tango
 
 bibliography: [references/packages.bib, references/references.bib]
 biblio-style: apalike
@@ -28,7 +28,6 @@ library("knitr")
 library("tidyverse")
 library("nlme")
 library("lme4")
-library("lmerTest")
 library("effectsize")
 library("glue")
 library("kableExtra")
@@ -91,7 +90,7 @@ df_app <- read_csv("../../data/daily_hk_app_usage.csv", col_types = cols()) %>%
 ```
 
 ```{r inclusion}
-# Apply inclusion criteria: ≥30 non-missing baseline days; <3 missing study days
+# Apply inclusion criteria: >=30 non-missing baseline days; <3 missing study days
 keep_uid <- df_hk %>%
   group_by(uid) %>%
   summarise(
@@ -293,23 +292,25 @@ adherence_by_cond <- person_period %>%
 
 # Introduction
 
-Physical inactivity remains one of the most pervasive public health challenges of the modern era. Despite overwhelming evidence linking regular physical activity to reduced risk of cardiovascular disease, metabolic disorders, and poor mental health, the vast majority of adults worldwide fail to meet the World Health Organization's recommended 150 minutes of moderate-intensity aerobic activity per week [@who2020guidelines]. The gap between intention and sustained behavior change is difficult to close with static, one-size-fits-all interventions. Effective behavior change requires personalization, timely feedback, motivational support, and adaptive coaching—properties that are difficult to deliver at scale through traditional public health programs.
+Physical inactivity is one of the biggest public health challenges of the modern era. There is overwhelming evidence linking regular physical activity to reduced risk of cardiovascular disease, metabolic disorders, and poor mental health. Still, the majority of adults fail to meet the World Health Organization's recommended 150 minutes of moderate-intensity aerobic activity per week [@who2020guidelines]. Unfortunately, the gap between intention and actual, realized behavior change is difficult to close with one-size-fits-all interventions (e.g. nudges from an Apple Watch). Effective behavior change requires personalization and adaptive coaching. These are properties that are hard to deliver at scale through the kinds of behavior change interventions we have today---especially expensive, in-person coaching.
 
-Digital health interventions have emerged as a promising complement to in-person approaches, offering the scalability and constant availability that clinical contacts cannot provide [@torous2020digital]. Smartphone applications that leverage wearable sensors can track physical activity continuously and provide automated feedback. However, most existing apps rely on rule-based notification systems, templated goal-setting dialogues, and generic content—limiting their ability to provide the kind of individualized, empathic coaching that drives long-term behavior change. The rapid advancement of large language models (LLMs) opens a new design space: AI systems capable of generating naturalistic, contextually adaptive conversations and content could plausibly provide a much richer behavior change experience.
+Digital health interventions have emerged as a promising complement to in-person approaches, offering constant availability that's hard to provide [@torous2020digital]. For example: smartphone applications leverage wearable sensors can track physical activity continuously and provide automated feedback. However, mostapps rely on rule-based notification systems or templated goal-setting dialogues. This limits their ability to provide the kind of individualized coaching that drives long-term behavior change. 
 
-Bloom is one of the first systems to systematically evaluate LLM-augmented behavior change interactions in a randomized field study [@jorke2025bloom]. Deployed as a physical activity app, Bloom integrated an LLM-powered chatbot coach, personalized activity plan generation, LLM-written notification messages, and dynamic activity summaries. The control condition replicated the app's core structure but replaced all LLM features with a structured UI for plan creation and template-based notifications. This design enabled a clean causal comparison of the LLM features' effect on both objectively measured physical activity and self-reported psychological outcomes over a four-week study period.
+The rapid advancement of large language models (LLMs) opens a new design space: AI systems capable of generating naturalistic, contextually adaptive conversations and content could plausibly provide a much richer behavior change experience. To this end, Bloom is one of the first systems to systematically evaluate LLM-augmented behavior change interactions in a randomized field study [@jorke2025bloom]. Bloom integrates an LLM-powered chatbot coach, personalized activity plan generation, LLM-written notification messages, and dynamic activity summaries. The **control condition** replicated the app's core structure but replaced all LLM features with a structured UI for plan creation and template-based notifications. This design enabled a clean causal comparison of the LLM features' effect on both objectively measured physical activity and self-reported psychological outcomes over a four-week study period.
+
+In this paper, we replicate and extend on the analysis in Bloom. We accessed the dataset from the original Bloom paper, outlined hypotheses, and visualize various properties of the dataset. **todo**
 
 ## Research Questions
 
 Our analyses address three primary research questions:
 
-1. Does participation in a structured physical activity app—regardless of condition—lead to a measurable increase in daily physical activity during the four-week study period compared to the three-month baseline?
-2. Do participants in the LLM condition show a larger increase from baseline to the study period than participants in the control condition?
-3. Do participants in the LLM condition show a more favorable week-to-week trajectory (i.e., a greater linear trend during the study) than the control condition?
+1. Does participation in a structured physical activity app (regardless of condition!) lead to an increase in daily physical activity during the four-week study period compared to a three-month baseline before using the app?
+2. Do participants in the LLM condition (e.g. Bloom) show a larger increase from baseline to the study period than participants in the control condition?
+3. Do participants in the LLM condition (again Bloom) show a more favorable week-to-week trajectory (a greater linear trend during the study) than the control condition?
 
 ## Hypotheses
 
-Our three pre-registered hypotheses are:
+Our three hypotheses are:
 
 > **H1**: Participants across both conditions will show a significant baseline-to-study increase in daily physical activity metrics ($S$ coefficient > 0).
 
@@ -317,7 +318,7 @@ Our three pre-registered hypotheses are:
 
 > **H3**: Participants in the LLM condition will show a more positive weekly trajectory during the intervention ($S \times \text{condition} \times \text{week}$ coefficient > 0).
 
-We expected that both conditions would benefit from the novelty of study participation (a Hawthorne-like effect and structured accountability), but that the LLM's personalization and social support features would produce a meaningful additional increment in activity. Aligned with psychological theories of behavior change emphasizing self-efficacy and intrinsic motivation [@bandura1977self; @deci1985intrinsic], we also expected LLM participants to show greater improvements in psychological determinants of physical activity—specifically mindset and satisfaction measures.
+We expected that both conditions would benefit from the novelty of study participation; and that the LLM system would provide additional benefit on top of that. Aligned with psychological theories of behavior change emphasizing self-efficacy and intrinsic motivation [@bandura1977self; @deci1985intrinsic], we also expected participants using the LLM system to show greater improvements in psychological determinants of physical activity—specifically mindset and satisfaction measures.
 
 ---
 
@@ -325,7 +326,7 @@ We expected that both conditions would benefit from the novelty of study partici
 
 ## Study Design
 
-This project reanalyzes data from the Bloom randomized controlled field study [@jorke2025bloom]. Participants were adult volunteers who owned an iPhone and Apple Watch and reported interest in increasing their physical activity. After an onboarding period during which three months of historical Apple HealthKit data were collected as baseline, participants were randomly assigned to one of two conditions for a four-week intervention:
+We reanalyze data from the Bloom randomized controlled field study [@jorke2025bloom]. Participants were adult volunteers who owned an iPhone and Apple Watch and reported interest in increasing their physical activity. After an onboarding period during which three months of historical Apple HealthKit data were collected as baseline, participants were randomly assigned to one of two conditions for a four-week intervention:
 
 - **LLM / Treatment condition (Bloom)**: Participants used the Bloom app, which included an LLM-powered chat coach (using GPT-4 or similar), LLM-generated weekly activity plans tailored to participants' goals and past performance, LLM-written daily notification messages, and personalized weekly summaries.
 - **Control condition (No-LLM)**: Participants used a structurally matched version of the app that replaced all LLM features. Activity plans were constructed via a structured form UI, notifications followed fixed templates, and there were no chat coaching or personalized summaries.
@@ -334,7 +335,7 @@ The study uses a **longitudinal randomized design** with a within-person compari
 
 ## Sample
 
-After applying pre-registered inclusion criteria (≥ 30 non-missing baseline days; < 3 missing study days), the analytic sample comprised `r n_total` participants: `r n_treatment` in the LLM/Treatment condition and `r n_control` in the Control condition.
+After applying pre-registered inclusion criteria (>= 30 non-missing baseline days; < 3 missing study days), the analytic sample comprised `r n_total` participants: `r n_treatment` in the LLM/Treatment condition and `r n_control` in the Control condition.
 
 A pre-study power analysis (two-sample *t*-test, $\alpha = .05$, $d = 0.70$) indicated approximately 71% power at the planned sample size of 54, sufficient for detecting medium-to-large effects. The study was likely underpowered to detect small between-condition effects.
 
@@ -372,7 +373,7 @@ Holm correction was applied across the four outcomes for each hypothesis to cont
 
 ### Exploratory Analyses
 
-In exploratory analyses, we examined: (a) within-group baseline-to-study changes fit separately by condition to characterize each group's trajectory; (b) WHO exercise adherence (percentage meeting ≥ 150 min/week) at baseline and during the study period; (c) pre-post changes in psychological outcomes; and (d) LLM engagement patterns across the study period.
+In exploratory analyses, we examined: (a) within-group baseline-to-study changes fit separately by condition to characterize each group's trajectory; (b) WHO exercise adherence (percentage meeting >= 150 min/week) at baseline and during the study period; (c) pre-post changes in psychological outcomes; and (d) LLM engagement patterns across the study period.
 
 ---
 
@@ -530,7 +531,7 @@ Table \@ref(tab:results-h3-table) reports the three-way $S \times \text{conditio
 
 ### Change Score Summary
 
-```{r plot2-change-scores, fig.cap="Participant-level baseline-to-study change scores (study mean − baseline daily mean) for all four HealthKit outcomes. Boxplots show the distribution across participants within each condition. Dashed line marks no change."}
+```{r plot2-change-scores, fig.cap="Participant-level baseline-to-study change scores (study mean - baseline daily mean) for all four HealthKit outcomes. Boxplots show the distribution across participants within each condition. Dashed line marks no change."}
 outcome_labels_v <- c(
   hk_stepcount              = "Step Count",
   hk_activeenergyburned     = "Active Energy (kcal)",
@@ -562,7 +563,7 @@ ggplot(change_scores, aes(x = Condition, y = change, fill = Condition)) +
   facet_wrap(~ outcome, scales = "free_y", nrow = 1) +
   labs(
     x    = NULL,
-    y    = "Change (study − baseline daily mean)",
+    y    = "Change (study - baseline daily mean)",
     fill = NULL
   ) +
   theme(
@@ -605,7 +606,7 @@ kable(
   adherence_by_cond %>%
     rename(Period = period, `N participants` = n,
            `N meeting 150 min/wk` = n_meeting, `% meeting` = pct),
-  caption = "Percentage of participants meeting WHO guideline of ≥150 min moderate activity per week, by period and condition."
+  caption = "Percentage of participants meeting WHO guideline of >= 50 min moderate activity per week, by period and condition."
 ) %>%
   kable_styling(bootstrap_options = c("striped", "hover"), full_width = FALSE)
 ```
@@ -617,7 +618,7 @@ adh_study_ctrl <- adherence_by_cond %>% filter(period == "Study", Condition == "
 adh_study_trt  <- adherence_by_cond %>% filter(period == "Study", Condition == "Treatment") %>% pull(pct)
 ```
 
-Table \@ref(tab:adherence-table) shows the proportion of participants in each group who averaged ≥ 150 minutes of exercise per week—the WHO minimum recommendation. At baseline, `r adh_base_ctrl`% of control and `r adh_base_trt`% of treatment participants met this threshold. During the study, these rates changed to `r adh_study_ctrl`% (control) and `r adh_study_trt`% (treatment), respectively. These descriptive comparisons should be interpreted with caution given the small sample sizes and lack of statistical adjustment.
+Table \@ref(tab:adherence-table) shows the proportion of participants in each group who averaged >= 150 minutes of exercise per week—the WHO minimum recommendation. At baseline, `r adh_base_ctrl`% of control and `r adh_base_trt`% of treatment participants met this threshold. During the study, these rates changed to `r adh_study_ctrl`% (control) and `r adh_study_trt`% (treatment), respectively. These descriptive comparisons should be interpreted with caution given the small sample sizes and lack of statistical adjustment.
 
 ### Pre–Post Psychological Outcomes
 
@@ -762,7 +763,7 @@ Figures \@ref(fig:plot4-engagement) and \@ref(fig:plot4-chat-trend) characterize
 
 ## Summary of Findings
 
-This study reanalyzed data from the Bloom randomized field experiment to evaluate whether LLM-augmented behavior change interactions led to greater improvements in objectively measured physical activity and psychological outcomes compared to a structurally matched control condition. Using a 3-level mixed-effects model that accounts for repeated daily measurements nested within weeks and participants, we tested three pre-registered hypotheses.
+This study reanalyzed data from the Bloom randomized field experiment to evaluate whether LLM-augmented behavior change interactions led to greater improvements in objectively measured physical activity and psychological outcomes compared to a structurally matched control condition. Using a 3-level mixed-effects model that accounts for repeated daily measurements nested within weeks and participants, we tested three hypotheses.
 
 **H1 (overall baseline-to-study increase)** was the hypothesis with the strongest prior probability of support, as any structured physical activity intervention—including mere participation in a study with wearable monitoring—might be expected to elevate activity relative to a naturalistic baseline. The $S$ coefficient captures this combined effect of the study context, structured goal setting, and app use. Whether H1 was supported across outcomes provides a basic manipulation check that the intervention period was associated with elevated activity.
 
