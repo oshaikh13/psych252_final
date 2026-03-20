@@ -18,9 +18,8 @@ output:
     toc_depth: 4
     highlight: tango
 
-bibliography: [references/packages.bib, references/references.bib]
+bibliography: references/references.bib
 biblio-style: apalike
-nocite: '@*'
 ---
 
 ```{r setup, echo=FALSE, message=FALSE, warning=FALSE}
@@ -111,8 +110,6 @@ writeLines(con = "references/references.bib", text = '
   doi          = {10.1007/978-1-4899-2271-7}
 }
 ')
-
-write_bib(.packages(), "references/packages.bib")
 ```
 
 ```{r load-data, cache=TRUE}
@@ -329,7 +326,9 @@ for (v in vars) {
       data      = dat_sub,
       method    = "REML",
       na.action = na.omit,
-      control   = lmeControl(maxIter = 100, msMaxIter = 300, msMaxEval = 5000)
+      control   = lmeControl(maxIter = 100, 
+                             msMaxIter = 300,
+                             msMaxEval = 5000)
     )
 
     coefs_sub <- summary(fit_sub)$tTable
@@ -402,7 +401,6 @@ adherence_by_cond <- person_period %>%
   arrange(match(period, c("Baseline", "Study")), Condition)
 ```
 
----
 
 # Introduction
 
@@ -412,7 +410,7 @@ Digital health interventions have emerged as a promising complement to in-person
 
 The rapid advancement of large language models (LLMs) opens a new design space: AI systems capable of generating naturalistic, contextually adaptive conversations and content could plausibly provide a much richer behavior change experience. To this end, Bloom is one of the first systems to systematically evaluate LLM-augmented behavior change interactions in a randomized field study [@jorke2025bloom]. Bloom integrates an LLM-powered chatbot coach, personalized activity plan generation, LLM-written notification messages, and dynamic activity summaries. The **control condition** replicated the app's core structure but replaced all LLM features with a structured UI for plan creation and template-based notifications. This design enabled a clean causal comparison of the LLM features' effect on both objectively measured physical activity and self-reported psychological outcomes over a four-week study period.
 
-In this paper, we replicate the original confirmatory analyses—including the three-level mixed-effects models and Holm-corrected hypothesis tests for wearable outcomes—as well as the within-condition decomposition reported in Bloom's supplementary materials. Our goal is to verify the robustness of the original findings, and visualize the key properties of the dataset.
+In this paper, we conduct an independent reanalysis of the publicly released dataset from the Bloom field study. We replicate the original confirmatory analyses, including the three-level mixed-effects models and Holm-corrected hypothesis tests for wearable outcomes, as well as the within-condition decomposition reported in Bloom's supplementary materials. We also replicate their descriptive reporting of pre–post psychological outcomes, WHO exercise adherence, and app engagement patterns. Beyond replication, we add participant-level change score distributions to visualize individual variability in treatment response, a perspective not presented in the original paper. Our goal is to verify the robustness of the original findings and visualize the key properties of the dataset.
 
 ## Research Questions
 
@@ -432,9 +430,7 @@ Our three hypotheses are:
 
 > **H3**: Participants in the LLM condition will show a more positive weekly trajectory during the intervention ($S \times \text{condition} \times \text{week}$ coefficient > 0).
 
-We expected that both conditions would benefit from the novelty of study participation; and that the LLM system would provide additional benefit on top of that. Aligned with psychological theories of behavior change emphasizing self-efficacy and intrinsic motivation [@bandura1977self; @deci1985intrinsic], we also expected participants using the LLM system to show greater improvements in psychological determinants of physical activity—specifically mindset and satisfaction measures.
-
----
+We expected that both conditions would benefit from the novelty of study participation; and that the LLM system would provide additional benefit on top of that. Aligned with psychological theories of behavior change emphasizing self-efficacy and intrinsic motivation [@bandura1977self; @deci1985intrinsic], we also expected participants using the LLM system to show greater improvements in psychological determinants of physical activity, specifically mindset and satisfaction measures.
 
 # Methods
 
@@ -488,8 +484,6 @@ Holm correction was applied across the four outcomes for each hypothesis.
 ### Exploratory Analyses
 
 In exploratory analyses, we examined: (a) within-group baseline-to-study changes fit separately by condition to characterize each group's trajectory; (b) WHO exercise adherence (percentage meeting >= 150 min/week) at baseline and during the study period; (c) pre-post changes in psychological outcomes; and (d) LLM engagement patterns across the study period.
-
----
 
 # Results
 
@@ -581,7 +575,8 @@ ggplot(week_means, aes(x = week_label,
 ```{r plot1-exercise-time, fig.cap="Mean daily exercise time (minutes) by week and condition. Error bars show ±1 SE. Dashed line marks the transition from baseline to the intervention period."}
 week_means_ex <- df_hk_inc %>%
   group_by(uid, Condition, week_num) %>%
-  summarise(mean_ex = mean(hk_appleexercisetime, na.rm = TRUE), 
+  summarise(mean_ex = mean(hk_appleexercisetime, 
+                           na.rm = TRUE), 
             .groups = "drop") %>%
   group_by(Condition, week_num) %>%
   summarise(
@@ -872,7 +867,8 @@ ggplot(psych_means) +
                         pre_m, post_m, delta_lbl),
         color = Condition,
         hjust = if_else(post_m >= pre_m, -0.08, 1.08)),
-    size = 2.8, show.legend = FALSE
+    size = 2.8, 
+    show.legend = FALSE
   ) +
   scale_color_manual(values = cond_colors_psych,
                      guide  = guide_legend(reverse = TRUE)) +
@@ -880,10 +876,13 @@ ggplot(psych_means) +
     breaks = seq_along(levels(psych_means$label)),
     labels = levels(psych_means$label)
   ) +
-  scale_x_continuous(limits = c(1, 6.5), breaks = 1:5,
+  scale_x_continuous(limits = c(1, 6.5), 
+                     breaks = 1:5,
                      labels = c("1\nStrongly\nDisagree", "2", "3", "4",
                                 "5\nStrongly\nAgree")) +
-  labs(x = "Average Score (Likert Scale)", y = NULL, color = NULL) +
+  labs(x = "Average Score (Likert Scale)", 
+       y = NULL, 
+       color = NULL) +
   theme_classic(base_size = 11) +
   theme(
     legend.position    = "top",
@@ -968,15 +967,15 @@ med_duration <- round(median(app_treat$total_duration,
 
 Figures \@ref(fig:plot4-engagement) and \@ref(fig:plot4-chat-trend) characterize how treatment participants engaged with the AI coaching features. Across the 28-day study, the median participant initiated `r med_chats` chat sessions, sent `r med_messages` messages, and spent `r med_duration` minutes total in the app. There was considerable variability: some participants used the chat coach extensively while others used it minimally. The weekly trend in Figure \@ref(fig:plot4-chat-trend) shows whether participants' engagement with the LLM increased, decreased, or remained stable across the study—an important consideration for understanding long-term feasibility of LLM-based coaching.
 
----
-
 # Discussion
 
 Our reanalysis of the Bloom paper evaluated whether LLM-augmented behavior change interactions produced greater improvements in physical activity and psychological outcomes compared to a simple, non-LLM control condition. The strongest finding was that even without LLM features, a well-designed app with goal setting and wearable integration produced meaningful activity increases over baseline. In other words, the app itself is a potent intervention. LLM-specific effects were more modest, which is unsurprising given the short four-week window and limited power to detect small real-world effects. Psychological outcomes offer a promising secondary lens. If LLM features can shift mindsets around physical activity, these changes may be "precursors" to behavioral effects that simply take longer than four weeks to surface in wearable data.
 
 Looking ahead, the most important next steps are larger and longer trials (12+ weeks), and maybe adaptive LLM engagement designs tailored to individual usage. Whether LLM-based coaching produces outcomes beyond a strong, static app remains an open question worth pursuing.
 
----
+# Acknowledgement
+
+We would like to thank Matthew Jörke for his helpful guidance and providing the data for this replication study. We would also like to acknowledge the use of Claude for help with syntax as well as plotting the pre-to-post changes in psychological outcomes.  
 
 # References
 
