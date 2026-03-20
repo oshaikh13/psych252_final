@@ -298,7 +298,7 @@ Digital health interventions have emerged as a promising complement to in-person
 
 The rapid advancement of large language models (LLMs) opens a new design space: AI systems capable of generating naturalistic, contextually adaptive conversations and content could plausibly provide a much richer behavior change experience. To this end, Bloom is one of the first systems to systematically evaluate LLM-augmented behavior change interactions in a randomized field study [@jorke2025bloom]. Bloom integrates an LLM-powered chatbot coach, personalized activity plan generation, LLM-written notification messages, and dynamic activity summaries. The **control condition** replicated the app's core structure but replaced all LLM features with a structured UI for plan creation and template-based notifications. This design enabled a clean causal comparison of the LLM features' effect on both objectively measured physical activity and self-reported psychological outcomes over a four-week study period.
 
-In this paper, we replicate and extend on the analysis in Bloom. We accessed the dataset from the original Bloom paper, outlined hypotheses, and visualize various properties of the dataset. **todo**
+In this paper, we replicate and extend on the analysis in Bloom. We accessed the dataset from the original Bloom paper, outlined hypotheses, and visualize various properties of the dataset. **todo- should we have more stuff here?**
 
 ## Research Questions
 
@@ -337,7 +337,7 @@ The study uses a **longitudinal randomized design** with a within-person compari
 
 After applying pre-registered inclusion criteria (>= 30 non-missing baseline days; < 3 missing study days), the analytic sample comprised `r n_total` participants: `r n_treatment` in the LLM/Treatment condition and `r n_control` in the Control condition.
 
-A pre-study power analysis (two-sample *t*-test, $\alpha = .05$, $d = 0.70$) indicated approximately 71% power at the planned sample size of 54, sufficient for detecting medium-to-large effects. The study was likely underpowered to detect small between-condition effects.
+A pre-study power analysis (two-sample *t*-test, $\alpha = .05$, $d = 0.70$) indicated approximately 71% power at the planned sample size of 54, sufficient for detecting medium-to-large effects. We suspect that this study was likely underpowered to detect small between-condition effects.
 
 ## Measures
 
@@ -369,7 +369,7 @@ Models were fit with `nlme::lme()` using REML estimation and per-participant res
 - **H2**: $\beta_{S:\text{condition}} > 0$ (condition difference in shift)
 - **H3**: $\beta_{S:\text{condition:week}} > 0$ (condition difference in weekly slope)
 
-Holm correction was applied across the four outcomes for each hypothesis to control the familywise error rate.
+Holm correction was applied across the four outcomes for each hypothesis.
 
 ### Exploratory Analyses
 
@@ -406,7 +406,7 @@ kable(desc,
   kable_styling(bootstrap_options = c("striped", "hover"), full_width = FALSE)
 ```
 
-Table \@ref(tab:descriptives-table) shows baseline daily physical activity for each condition. The two groups were broadly comparable at baseline on all four wearable outcomes, consistent with successful randomization.
+Table \@ref(tab:descriptives-table) shows baseline daily physical activity for each condition. The two groups were broadly comparable at baseline on all four wearable outcomes.
 
 ## Physical Activity Over Time
 
@@ -468,7 +468,7 @@ ggplot(week_means_ex, aes(x = week_label, y = m, color = Condition, group = Cond
   theme(legend.position = "top")
 ```
 
-Figures \@ref(fig:plot1-steps-over-time) and \@ref(fig:plot1-exercise-time) plot mean daily steps and exercise time across weeks, broken down by condition. Both groups show a visible uptick relative to baseline during the study period, though the trajectories are notably similar between conditions—a first visual indication that the LLM features may not have produced a large differential boost in wearable activity.
+Figures \@ref(fig:plot1-steps-over-time) and \@ref(fig:plot1-exercise-time) plot mean daily steps and exercise time across weeks, broken down by condition. Both groups show a visible uptick relative to baseline during the study period, though the trajectories are notably similar between conditions. This is an early visual indication that the LLM features may not have produced a large boost in wearable activity.
 
 ## Confirmatory Analysis
 
@@ -484,7 +484,7 @@ results_display %>%
   kable_styling(bootstrap_options = c("striped", "hover"), full_width = FALSE)
 ```
 
-Table \@ref(tab:results-h1-table) presents the $S$ coefficient—the estimated baseline-to-study change in each wearable outcome—across both conditions pooled. A positive coefficient indicates that, on average, participants were more active during the study period than during their three-month baseline. These estimates test H1.
+Table \@ref(tab:results-h1-table) shows the $S$ coefficient. This is the estimated baseline-to-study change in each wearable outcome. Across both conditions pooled. A positive coefficient indicates that, on average, participants were more active during the study period than during their three-month baseline. These estimates test H1.
 
 ```{r h1-summary}
 h1_step <- results_df %>% filter(outcome == "hk_stepcount", hypothesis == "H1")
@@ -597,7 +597,7 @@ kable(poc_display,
   kable_styling(bootstrap_options = c("striped", "hover"), full_width = FALSE)
 ```
 
-As an exploratory complement to the confirmatory analysis, we fit separate within-group models to characterize each condition's trajectory independently (Table \@ref(tab:poc-table)). This approach decomposes the pooled H1 into condition-specific estimates (H1a for control, H1b for treatment), providing a cleaner picture of whether each condition individually showed meaningful increases relative to baseline. Both conditions show positive $S$ coefficients across most outcomes, suggesting that the act of study participation—independent of the LLM features—was associated with elevated physical activity relative to the pre-study baseline.
+As a complement to the confirmatory analysis, we fit separate within-group models to characterize each condition's trajectory independently (Table \@ref(tab:poc-table)). We can decompose the pooled H1 into condition-specific estimates (H1a for control, H1b for treatment), providing another idea of whether each condition individually showed increases relative to baseline. Both conditions show positive $S$ coefficients across most outcomes, suggesting that the act of study participation (independent of the LLM features!) was associated with elevated physical activity relative to the pre-study baseline.
 
 ### WHO Exercise Adherence
 
@@ -691,7 +691,7 @@ ggplot(psych_means) +
   )
 ```
 
-Figure \@ref(fig:plot3-pre-post) displays pre-to-post changes in four psychological outcomes. Both groups showed some improvement from pre to post across most outcomes. Notably, the treatment group's scores on PA satisfaction and mindset measures appear to trend similarly to or slightly above the control group on some dimensions. However, given the absence of formal statistical testing in this exploratory section, these patterns are descriptive only. The small sample sizes caution against over-interpreting condition differences in psychological outcomes from these visualizations.
+Figure \@ref(fig:plot3-pre-post) displays pre-to-post changes in four psychological outcomes. Both groups showed some improvement from pre to post across most outcomes. Notably, the treatment group's scores on PA satisfaction and mindset measures appear to trend similarly to or slightly above the control group on some dimensions. However, given the absence of formal statistical testing in this exploratory section, these patterns are descriptive only. We have small sample sizes here, so we caution against over-interpreting condition differences in psychological outcomes from these visualizations.
 
 ### App Engagement (Treatment Group)
 
@@ -761,35 +761,9 @@ Figures \@ref(fig:plot4-engagement) and \@ref(fig:plot4-chat-trend) characterize
 
 # Discussion
 
-## Summary of Findings
+Our reanalysis of the Bloom paper evaluated whether LLM-augmented behavior change interactions produced greater improvements in physical activity and psychological outcomes compared to a simple, non-LLM control condition. The strongest finding was that even without LLM features, a well-designed app with goal setting and wearable integration produced meaningful activity increases over baseline. In other words, the app itself is a potent intervention. LLM-specific effects were more modest, which is unsurprising given the short four-week window and limited power to detect small real-world effects. Psychological outcomes offer a promising secondary lens. If LLM features can shift mindsets around physical activity, these changes may be "precursors" to behavioral effects that simply take longer than four weeks to surface in wearable data.
 
-This study reanalyzed data from the Bloom randomized field experiment to evaluate whether LLM-augmented behavior change interactions led to greater improvements in objectively measured physical activity and psychological outcomes compared to a structurally matched control condition. Using a 3-level mixed-effects model that accounts for repeated daily measurements nested within weeks and participants, we tested three hypotheses.
-
-**H1 (overall baseline-to-study increase)** was the hypothesis with the strongest prior probability of support, as any structured physical activity intervention—including mere participation in a study with wearable monitoring—might be expected to elevate activity relative to a naturalistic baseline. The $S$ coefficient captures this combined effect of the study context, structured goal setting, and app use. Whether H1 was supported across outcomes provides a basic manipulation check that the intervention period was associated with elevated activity.
-
-**H2 and H3**, which targeted the specific effect of the LLM features, were the theoretically critical tests. Given the original paper's findings, and the modest power of the study to detect small effects, we expected these results to be modest or non-significant for wearable outcomes. Physical activity behavior in free-living conditions is notoriously variable, and four weeks is a short window in which to observe differential treatment effects in an already active sample.
-
-The psychological outcome exploratory analyses are informative for understanding *why* LLM features might or might not translate to behavioral change. If participants experience more positive mindsets about physical activity and greater satisfaction with their health, these psychological shifts may be precursors to longer-term behavioral change that a four-week study is too short to detect. The dumbbell plots suggest that both groups experienced psychological change during the study, though the magnitude and direction of condition differences requires careful interpretation given the lack of formal inference testing in this exploratory section.
-
-## Engagement and the Black Box Problem
-
-A persistent challenge in evaluating LLM-based interventions is the "black box" problem: even if overall behavioral outcomes do not differ between conditions, the LLM may be producing meaningful intermediate effects that are not captured by wearable sensors over a short window. The app engagement data for the treatment group begin to address this—they reveal substantial heterogeneity in how participants actually used the AI coaching features. A participant who initiates dozens of chat sessions over four weeks is experiencing a qualitatively different intervention than one who opens the chat once. Understanding this usage heterogeneity, and whether heavier LLM engagement predicts more positive outcomes, is a promising direction for future analysis.
-
-## Limitations
-
-Several limitations temper our conclusions. First, the study was **underpowered** for detecting small between-condition effects. A power analysis at planning indicated ~71% power for a medium-to-large effect ($d = 0.70$), but many real-world health behavior interventions produce smaller effects that fall below this threshold. Second, the **four-week study duration** is short relative to the timescales at which durable physical activity habits form. Effects detectable in wearable data may require months, not weeks, to emerge. Third, **self-selection** may have produced a sample of participants already motivated to increase their physical activity—a ceiling effect that compresses the dynamic range of change scores.
-
-Fourth, the comparison of pre- and post-survey psychological measures is complicated by **response shift bias**: participants may recalibrate their internal standards over the course of the study, making apparent pre-post differences hard to interpret. Finally, the **control condition** itself was not an inactive comparison: control participants received a fully functional goal-setting and self-monitoring app, which itself represents an evidence-based behavior change technique [@michie2011behaviour]. The LLM condition's features were therefore evaluated against an active comparator, not a no-treatment baseline—an appropriate but demanding benchmark.
-
-## Implications
-
-Despite these limitations, the Bloom study contributes important evidence to an emerging literature on LLM-based health coaching. LLMs offer the first practical path to delivering personalized, conversational behavior change support at scale, without requiring clinician time. The central question is not whether LLMs *can* produce coaching content that is motivationally appropriate—qualitative work suggests users often find it helpful—but whether that coaching translates to sustained behavioral change detectable in population-level wearable data.
-
-Our results suggest that even without LLM features, a well-designed physical activity app with structured goal setting and wearable integration can produce meaningful increases in physical activity relative to a naturalistic baseline. Whether the LLM adds a detectable increment above this strong foundation remains an open empirical question, one that larger and longer trials will need to address. Future work should consider adaptive LLM engagement designs that tailor conversation frequency and content to individual engagement patterns, test longer intervention windows (12+ weeks), and incorporate richer objective outcome measures beyond step counts.
-
-## Conclusion
-
-This project provides a rigorous reanalysis of a pioneering LLM-augmented behavior change field experiment. Using three-level linear mixed-effects models that closely mirror the original paper's analytic approach, we evaluated whether LLM features produced differential gains in physical activity and psychological outcomes. Our confirmatory analyses tested three pre-registered hypotheses about the size and significance of condition differences. Exploratory analyses on WHO exercise adherence, psychological outcomes, and LLM engagement patterns rounded out our portrait of how participants responded to the two app designs. These findings contribute to the nascent evidence base on LLM health coaching and highlight the methodological challenges of detecting behavioral effects in small, short-duration randomized field experiments.
+Looking ahead, the most important next steps are larger and longer trials (12+ weeks), and maybe adaptive LLM engagement designs tailored to individual usage. Whether LLM-based coaching produces outcomes beyond a strong, static app remains an open question worth pursuing.
 
 ---
 
